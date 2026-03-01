@@ -1,0 +1,75 @@
+# =============================================================================
+# Stack Defaults — Variables compartidas entre todos los stacks
+# =============================================================================
+#
+# Este archivo define los valores por defecto que heredan dev, staging y prod.
+# Cada stack puede sobreescribir cualquier valor definido aquí.
+#
+# Orden de precedencia (mayor tiene prioridad):
+#   1. _defaults.yaml  (este archivo — menor prioridad)
+#   2. stacks/dev.yaml / stacks/staging.yaml / stacks/prod.yaml
+#   3. CLI flags: atmos terraform apply ecs-service -s dev --var="desired_count=3"
+# =============================================================================
+
+vars:
+  # Región base del proyecto
+  aws_region: "eu-west-1"
+
+  # Puerto de la aplicación — fijo en todos los entornos
+  container_port: 8080
+
+  # Imagen por defecto — CI/CD la sobreescribe con la tag del artifact
+  container_image: "public.ecr.aws/shopapi/api:latest"
+
+  # Configuración de health check — igual en todos los entornos
+  health_check_path:    "/health"
+  health_check_timeout: 5
+
+  # Configuración del deployment rolling update — estándar en todos los entornos
+  deployment_circuit_breaker_enabled:  true
+  deployment_circuit_breaker_rollback: true
+  deployment_maximum_percent:          200
+  deployment_minimum_healthy_percent:  100
+
+# Componentes disponibles con sus metadatos
+components:
+  terraform:
+    vpc:
+      metadata:
+        component: vpc
+        description: "VPC con subnets públicas y privadas, NAT Gateway, route tables"
+        type: abstract  # Abstracto: no se despliega directamente, solo hereda
+      vars:
+        # Los stacks concretos sobreescriben vpc_cidr y availability_zones
+
+    ecs-cluster:
+      metadata:
+        component: ecs-cluster
+        description: "ECS Cluster Fargate con Container Insights configurable"
+      vars:
+        capacity_providers:
+          - "FARGATE"
+          - "FARGATE_SPOT"
+
+    alb:
+      metadata:
+        component: alb
+        description: "Application Load Balancer público con target group y listener HTTP"
+      vars:
+        health_check_path:     "/health"
+        health_check_interval: 30
+        health_check_timeout:  5
+        healthy_threshold:     2
+        unhealthy_threshold:   3
+
+    ecs-service:
+      metadata:
+        component: ecs-service
+        description: "ECS Service Fargate con Task Definition ARM64, Auto Scaling y alarmas"
+      vars:
+        service_name:   "shopapi-api"
+        container_port: 8080
+        deployment_circuit_breaker_enabled:  true
+        deployment_circuit_breaker_rollback: true
+        deployment_maximum_percent:          200
+        deployment_minimum_healthy_percent:  100

@@ -1,0 +1,82 @@
+# =============================================================================
+# Atmos Configuration — ShopAPI Enterprise
+# =============================================================================
+#
+# Atmos es una CLI de gestión de stacks Terraform/Terragrunt multi-entorno.
+# Complementa a Terragrunt añadiendo: stacks en YAML, workflows, validaciones.
+#
+# Documentación: https://atmos.tools
+# Instalación:   brew install cloudposse/tap/atmos
+#                o: curl -fsSL https://atmos.tools/install.sh | bash
+#
+# Comandos principales:
+#   atmos terraform plan  <component> -s <stack>
+#   atmos terraform apply <component> -s <stack>
+#   atmos workflow deploy -f workflows/deploy.yaml -w deploy-dev
+#   atmos describe stacks --stack shopapi-dev
+# =============================================================================
+
+# Versión del esquema de configuración de Atmos
+# Consultar changelog en https://atmos.tools/releases
+version: "1"
+
+# =============================================================================
+# RUTAS BASE
+# =============================================================================
+# base_path: directorio raíz relativo a este archivo atmos.yaml
+# Todos los demás paths son relativos a base_path.
+base_path: ".."
+
+# Directorio donde están los componentes Terraform
+# Cada componente es un módulo Terraform independiente
+components:
+  terraform:
+    base_component_directory: "atmos/components/terraform"
+
+    # Atmos genera backend.tf y provider.tf automáticamente
+    # similar a Terragrunt, pero con YAML en lugar de HCL
+    apply_auto_approve: false # Requiere confirmación explícita
+
+# =============================================================================
+# STACKS
+# =============================================================================
+# Los stacks combinan componentes + entorno + configuración.
+# Cada stack YAML define qué componentes se despliegan y con qué variables.
+stacks:
+  base_path: "atmos/stacks"
+
+  # Patrón de nombres de los archivos de stack
+  # Atmos carga: stacks/dev.yaml, stacks/staging.yaml, stacks/prod.yaml
+  name_pattern: "{environment}"
+
+  # Atmos puede filtrar stacks por estas dimensiones
+  # Útil en organizaciones multi-cuenta y multi-región
+  name_template: "shopapi-{environment}"
+
+# =============================================================================
+# WORKFLOWS
+# =============================================================================
+# Workflows: secuencias de comandos Atmos para automatizar despliegues.
+# Se definen en YAML y se ejecutan con: atmos workflow <nombre>
+workflows:
+  base_path: "atmos/workflows"
+
+# =============================================================================
+# LOGS
+# =============================================================================
+logs:
+  file: "/dev/stderr"
+  level: "Info" # Debug | Info | Warning | Error
+
+# =============================================================================
+# INTEGRACIÓN CON HERRAMIENTAS EXTERNAS
+# =============================================================================
+integrations:
+  # Atlantis: CI/CD de Terraform en Pull Requests
+  atlantis:
+    path: "atlantis.yaml"
+    config:
+      automerge: true
+      delete_source_branch_on_merge: true
+      parallel_plan: true
+      parallel_apply: false # Aplicar en serie para evitar conflictos de estado

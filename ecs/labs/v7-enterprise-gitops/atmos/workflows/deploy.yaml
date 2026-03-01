@@ -1,0 +1,198 @@
+# =============================================================================
+# Atmos Workflows — ShopAPI
+# =============================================================================
+#
+# Los workflows de Atmos son secuencias de pasos que se ejecutan con:
+#   atmos workflow <nombre-workflow> -f atmos/workflows/deploy.yaml
+#
+# Documentación: https://atmos.tools/core-concepts/workflows
+#
+# Flujo de promotion recomendado:
+#   deploy-dev → deploy-staging (tras validación) → deploy-prod (con aprobación)
+# =============================================================================
+
+workflows:
+
+  # ── Deploy completo de DEV ─────────────────────────────────────────────────
+  deploy-dev:
+    description: |
+      Despliega todos los componentes del stack dev en orden:
+      vpc → alb + ecs-cluster (paralelo) → ecs-service
+    steps:
+      - name: validate-dev
+        description: "Validar la configuración de Atmos antes de desplegar"
+        command: atmos
+        args:
+          - validate
+          - stacks
+
+      - name: plan-dev
+        description: "Plan completo del stack dev"
+        command: atmos
+        args:
+          - terraform
+          - plan
+          - vpc
+          - -s
+          - shopapi-dev
+
+      - name: apply-vpc-dev
+        description: "Crear VPC, subnets, NAT Gateway"
+        command: atmos
+        args:
+          - terraform
+          - apply
+          - vpc
+          - -s
+          - shopapi-dev
+          - --
+          - -auto-approve
+
+      - name: apply-cluster-dev
+        description: "Crear ECS Cluster"
+        command: atmos
+        args:
+          - terraform
+          - apply
+          - ecs-cluster
+          - -s
+          - shopapi-dev
+          - --
+          - -auto-approve
+
+      - name: apply-alb-dev
+        description: "Crear ALB, target group y listener"
+        command: atmos
+        args:
+          - terraform
+          - apply
+          - alb
+          - -s
+          - shopapi-dev
+          - --
+          - -auto-approve
+
+      - name: apply-service-dev
+        description: "Crear ECS Service, Task Definition, Auto Scaling"
+        command: atmos
+        args:
+          - terraform
+          - apply
+          - ecs-service
+          - -s
+          - shopapi-dev
+          - --
+          - -auto-approve
+
+  # ── Deploy completo de STAGING ─────────────────────────────────────────────
+  deploy-staging:
+    description: |
+      Despliega el stack staging. Prerequisito: validar que los tests en dev pasan.
+    steps:
+      - name: validate-staging
+        command: atmos
+        args: [validate, stacks]
+
+      - name: apply-vpc-staging
+        command: atmos
+        args: [terraform, apply, vpc, -s, shopapi-staging, --, -auto-approve]
+
+      - name: apply-cluster-staging
+        command: atmos
+        args: [terraform, apply, ecs-cluster, -s, shopapi-staging, --, -auto-approve]
+
+      - name: apply-alb-staging
+        command: atmos
+        args: [terraform, apply, alb, -s, shopapi-staging, --, -auto-approve]
+
+      - name: apply-service-staging
+        command: atmos
+        args: [terraform, apply, ecs-service, -s, shopapi-staging, --, -auto-approve]
+
+  # ── Deploy de PROD (solo plan — apply requiere aprobación manual) ──────────
+  deploy-prod-plan:
+    description: |
+      Genera el plan de prod SIN aplicarlo.
+      Revisar el output antes de ejecutar deploy-prod-apply.
+      La aprobación manual es obligatoria antes de aplicar en prod.
+    steps:
+      - name: validate-prod
+        command: atmos
+        args: [validate, stacks]
+
+      - name: plan-vpc-prod
+        command: atmos
+        args: [terraform, plan, vpc, -s, shopapi-prod]
+
+      - name: plan-cluster-prod
+        command: atmos
+        args: [terraform, plan, ecs-cluster, -s, shopapi-prod]
+
+      - name: plan-alb-prod
+        command: atmos
+        args: [terraform, plan, alb, -s, shopapi-prod]
+
+      - name: plan-service-prod
+        command: atmos
+        args: [terraform, plan, ecs-service, -s, shopapi-prod]
+
+  # ── Apply de PROD (ejecutar solo tras revisar deploy-prod-plan) ────────────
+  deploy-prod-apply:
+    description: |
+      Aplica los cambios en prod.
+      IMPORTANTE: Ejecutar SOLO después de revisar el plan con deploy-prod-plan.
+      Este workflow NO es idempotente — tiene efectos en producción real.
+    steps:
+      - name: apply-vpc-prod
+        command: atmos
+        args: [terraform, apply, vpc, -s, shopapi-prod, --, -auto-approve]
+
+      - name: apply-cluster-prod
+        command: atmos
+        args: [terraform, apply, ecs-cluster, -s, shopapi-prod, --, -auto-approve]
+
+      - name: apply-alb-prod
+        command: atmos
+        args: [terraform, apply, alb, -s, shopapi-prod, --, -auto-approve]
+
+      - name: apply-service-prod
+        command: atmos
+        args: [terraform, apply, ecs-service, -s, shopapi-prod, --, -auto-approve]
+
+  # ── Destruir DEV (seguro para practicar) ─────────────────────────────────
+  destroy-dev:
+    description: |
+      Destruye todos los recursos del entorno dev en orden inverso.
+      Seguro para usar durante el lab — no afecta staging ni prod.
+    steps:
+      - name: destroy-service-dev
+        command: atmos
+        args: [terraform, destroy, ecs-service, -s, shopapi-dev, --, -auto-approve]
+
+      - name: destroy-alb-dev
+        command: atmos
+        args: [terraform, destroy, alb, -s, shopapi-dev, --, -auto-approve]
+
+      - name: destroy-cluster-dev
+        command: atmos
+        args: [terraform, destroy, ecs-cluster, -s, shopapi-dev, --, -auto-approve]
+
+      - name: destroy-vpc-dev
+        command: atmos
+        args: [terraform, destroy, vpc, -s, shopapi-dev, --, -auto-approve]
+
+  # ── Describir el estado de todos los stacks ───────────────────────────────
+  describe-all:
+    description: "Muestra la configuración final de todos los stacks y componentes"
+    steps:
+      - name: describe-dev
+        command: atmos
+        args: [describe, stacks, --stack, shopapi-dev]
+
+      - name: describe-staging
+        command: atmos
+        args: [describe, stacks, --stack, shopapi-staging]
+
+      - name: describe-prod
+        command: atmos
+        args: [describe, stacks, --stack, shopapi-prod]

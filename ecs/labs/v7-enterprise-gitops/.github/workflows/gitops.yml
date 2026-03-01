@@ -1,0 +1,288 @@
+name: GitOps — Infraestructura ShopAPI
+
+# =============================================================================
+# Cuándo se ejecuta este pipeline
+# =============================================================================
+on:
+  pull_request:
+    branches:
+      - main
+      - dev
+      - staging
+    paths:
+      - 'terragrunt/**'
+      - 'atmos/**'
+      - '.github/workflows/gitops.yml'
+
+  push:
+    branches:
+      - main
+      - dev
+      - staging
+    paths:
+      - 'terragrunt/**'
+      - 'atmos/**'
+
+# Evitar que dos workflows corran apply en paralelo sobre el mismo entorno.
+# Si hay un apply en curso y se hace push, el nuevo workflow cancela el anterior.
+concurrency:
+  group: gitops-${{ github.ref }}
+  cancel-in-progress: false  # false = esperar, no cancelar (más seguro en apply)
+
+env:
+  TF_VERSION:        "1.7.0"
+  TERRAGRUNT_VERSION: "0.55.0"
+  AWS_REGION:        "eu-west-1"
+
+# =============================================================================
+# JOBS
+# =============================================================================
+jobs:
+
+  # ── Detectar entorno según la rama ─────────────────────────────────────────
+  detect-environment:
+    name: Detectar entorno
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.detect.outputs.environment }}
+      working_dir: ${{ steps.detect.outputs.working_dir }}
+    steps:
+      - name: Determinar entorno por rama
+        id: detect
+        run: |
+          case "${{ github.ref_name }}" in
+            dev)     echo "environment=dev"     >> $GITHUB_OUTPUT
+                     echo "working_dir=terragrunt/dev" >> $GITHUB_OUTPUT ;;
+            staging) echo "environment=staging" >> $GITHUB_OUTPUT
+                     echo "working_dir=terragrunt/staging" >> $GITHUB_OUTPUT ;;
+            main)    echo "environment=prod"    >> $GITHUB_OUTPUT
+                     echo "working_dir=terragrunt/prod" >> $GITHUB_OUTPUT ;;
+            *)       echo "environment=dev"     >> $GITHUB_OUTPUT
+                     echo "working_dir=terragrunt/dev" >> $GITHUB_OUTPUT ;;
+          esac
+          echo "Entorno detectado: ${{ github.ref_name }}"
+
+  # ── Lint y Validación ──────────────────────────────────────────────────────
+  validate:
+    name: Validar formato y sintaxis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Instalar Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Instalar Terragrunt
+        run: |
+          wget -q "https://github.com/gruntwork-io/terragrunt/releases/download/v${TERRAGRUNT_VERSION}/terragrunt_linux_amd64" \
+            -O /usr/local/bin/terragrunt
+          chmod +x /usr/local/bin/terragrunt
+          terragrunt --version
+
+      - name: Verificar formato Terraform (terraform fmt)
+        run: |
+          echo "Verificando formato de los módulos Terraform..."
+          terraform fmt -check -recursive terragrunt/_modules/
+          echo "✅ Formato correcto"
+
+      - name: Validar HCL de los módulos
+        run: |
+          echo "Validando módulos Terraform..."
+          for dir in terragrunt/_modules/*/; do
+            echo "  Validando $dir..."
+            (cd "$dir" && terraform init -backend=false -input=false && terraform validate)
+          done
+          echo "✅ Todos los módulos válidos"
+
+  # ── Plan en Pull Request ───────────────────────────────────────────────────
+  plan:
+    name: Plan — ${{ needs.detect-environment.outputs.environment }}
+    runs-on: ubuntu-latest
+    needs: [detect-environment, validate]
+    if: github.event_name == 'pull_request'
+
+    # Permisos: id-token para OIDC con AWS, contents para leer el repo
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write  # Para comentar el plan en el PR
+
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Instalar Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false  # Necesario para capturar el output del plan
+
+      - name: Instalar Terragrunt
+        run: |
+          wget -q "https://github.com/gruntwork-io/terragrunt/releases/download/v${TERRAGRUNT_VERSION}/terragrunt_linux_amd64" \
+            -O /usr/local/bin/terragrunt
+          chmod +x /usr/local/bin/terragrunt
+
+      # Autenticación con AWS via OIDC (sin access keys estáticas)
+      # El Role ARN se configura en GitHub Actions → Settings → Secrets
+      - name: Configurar credenciales AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gitops-plan-${{ github.run_id }}
+
+      - name: Actualizar Account ID en env.hcl
+        env:
+          ENVIRONMENT: ${{ needs.detect-environment.outputs.environment }}
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          sed -i "s/ACCOUNT_ID_PLACEHOLDER/${ACCOUNT_ID}/g" \
+            "terragrunt/${ENVIRONMENT}/env.hcl"
+          echo "Account ID configurado: ${ACCOUNT_ID}"
+
+      - name: Terragrunt Run-All Plan
+        id: plan
+        working-directory: ${{ needs.detect-environment.outputs.working_dir }}
+        run: |
+          # Capturar el output del plan para comentarlo en el PR
+          terragrunt run-all plan \
+            --terragrunt-non-interactive \
+            --terragrunt-log-level error \
+            -out=tfplan 2>&1 | tee plan_output.txt
+          echo "plan_exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+
+      - name: Comentar plan en el PR
+        uses: actions/github-script@v7
+        if: always()
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const path = '${{ needs.detect-environment.outputs.working_dir }}/plan_output.txt';
+            let planOutput = '';
+            try {
+              planOutput = fs.readFileSync(path, 'utf8');
+              // Truncar si es muy largo (límite de GitHub: 65535 chars)
+              if (planOutput.length > 60000) {
+                planOutput = planOutput.substring(0, 60000) + '\n... (output truncado)';
+              }
+            } catch (e) {
+              planOutput = 'No se pudo leer el output del plan: ' + e.message;
+            }
+
+            const environment = '${{ needs.detect-environment.outputs.environment }}';
+            const exitCode = '${{ steps.plan.outputs.plan_exit_code }}';
+            const status = exitCode === '0' ? '✅' : '❌';
+
+            const body = `## ${status} Terraform Plan — \`${environment}\`
+
+            <details>
+            <summary>Ver plan completo</summary>
+
+            \`\`\`hcl
+            ${planOutput}
+            \`\`\`
+
+            </details>
+
+            **Commit:** \`${{ github.sha }}\`
+            **Rama:** \`${{ github.head_ref }}\`
+            **Entorno:** \`${environment}\`
+
+            > ⚠️ Revisar el plan antes de aprobar el PR. El apply se ejecutará automáticamente tras el merge.`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+      - name: Fallar si el plan tiene errores
+        if: steps.plan.outputs.plan_exit_code != '0'
+        run: |
+          echo "❌ El plan ha fallado. Ver el comentario en el PR para más detalles."
+          exit 1
+
+  # ── Apply en merge a la rama protegida ────────────────────────────────────
+  apply:
+    name: Apply — ${{ needs.detect-environment.outputs.environment }}
+    runs-on: ubuntu-latest
+    needs: [detect-environment, validate]
+    if: github.event_name == 'push'
+
+    # Entornos de GitHub con required reviewers configurados
+    # Para prod: configurar en Settings → Environments → prod → Required reviewers
+    environment: ${{ needs.detect-environment.outputs.environment }}
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Instalar Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Instalar Terragrunt
+        run: |
+          wget -q "https://github.com/gruntwork-io/terragrunt/releases/download/v${TERRAGRUNT_VERSION}/terragrunt_linux_amd64" \
+            -O /usr/local/bin/terragrunt
+          chmod +x /usr/local/bin/terragrunt
+
+      - name: Configurar credenciales AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gitops-apply-${{ github.run_id }}
+
+      - name: Actualizar Account ID en env.hcl
+        env:
+          ENVIRONMENT: ${{ needs.detect-environment.outputs.environment }}
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          sed -i "s/ACCOUNT_ID_PLACEHOLDER/${ACCOUNT_ID}/g" \
+            "terragrunt/${ENVIRONMENT}/env.hcl"
+
+      - name: Terragrunt Run-All Apply
+        working-directory: ${{ needs.detect-environment.outputs.working_dir }}
+        run: |
+          echo "🚀 Aplicando infraestructura en ${{ needs.detect-environment.outputs.environment }}..."
+          terragrunt run-all apply \
+            --terragrunt-non-interactive \
+            --terragrunt-log-level info \
+            -auto-approve
+
+      - name: Verificar estado del servicio ECS
+        env:
+          ENVIRONMENT: ${{ needs.detect-environment.outputs.environment }}
+        run: |
+          echo "Verificando que el servicio ECS está estable..."
+          aws ecs wait services-stable \
+            --cluster "shopapi-cluster-${ENVIRONMENT}" \
+            --services "shopapi-api" \
+            --region "$AWS_REGION" && echo "✅ Servicio estable" || echo "⚠️ Servicio puede tardar en estabilizarse"
+
+      - name: Notificar resultado
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          ENVIRONMENT="${{ needs.detect-environment.outputs.environment }}"
+          if [ "$STATUS" = "success" ]; then
+            echo "✅ Deploy exitoso en ${ENVIRONMENT} (commit: ${{ github.sha }})"
+          else
+            echo "❌ Deploy fallido en ${ENVIRONMENT} (commit: ${{ github.sha }})"
+            echo "Revisar los logs de GitHub Actions para más detalles."
+          fi
+          # En un entorno real: aquí se enviaría una notificación a Slack/Teams
+          # via curl a un webhook configurado en secrets.SLACK_WEBHOOK_URL

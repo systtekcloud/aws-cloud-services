@@ -1,0 +1,110 @@
+# =============================================================================
+# Stack: shopapi-prod
+# =============================================================================
+#
+# Producción: máxima disponibilidad, resiliencia y observabilidad.
+#
+# IMPORTANTE: Los cambios en prod requieren:
+#   1. Aprobación del PR en GitHub (CODEOWNERS)
+#   2. Plan revisado por el equipo de SRE
+#   3. Despliegue en ventana de mantenimiento (si es cambio de infraestructura)
+#   4. Los cambios solo de imagen (rolling update) se aplican vía CI/CD sin ventana
+#
+# Ejecutar:
+#   atmos terraform plan  ecs-service -s shopapi-prod  # SIEMPRE plan primero
+#   atmos terraform apply ecs-service -s shopapi-prod  # Confirmar manualmente
+#
+# O con workflow (incluye validaciones y aprobaciones):
+#   atmos workflow deploy-prod -f atmos/workflows/deploy.yaml
+# =============================================================================
+
+vars:
+  environment: "prod"
+  aws_region:  "eu-west-1"
+  account_id:  "ACCOUNT_ID_PLACEHOLDER"
+
+components:
+  terraform:
+
+    # ── VPC ──────────────────────────────────────────────────────────────────
+    vpc:
+      metadata:
+        component: vpc
+      vars:
+        vpc_cidr:           "10.0.0.0/16"
+        availability_zones: ["eu-west-1a", "eu-west-1b", "eu-west-1c"]  # 3 AZs
+        # Prod: un NAT Gateway por AZ para eliminar NAT como SPOF
+        # Coste adicional: ~$33/mes pero elimina un punto de fallo
+        single_nat_gateway: false
+
+        # VPC Flow Logs para auditoría y detección de anomalías de red
+        enable_flow_logs:        true
+        flow_log_retention_days: 30
+
+    # ── ECS Cluster ──────────────────────────────────────────────────────────
+    ecs-cluster:
+      metadata:
+        component: ecs-cluster
+      vars:
+        container_insights: true          # Obligatorio en prod
+        enable_execute_command: true      # Para debugging de emergencia via SSM
+
+    # ── ALB ──────────────────────────────────────────────────────────────────
+    alb:
+      metadata:
+        component: alb
+      vars:
+        deletion_protection:  true   # CRÍTICO: protege contra borrado accidental
+        deregistration_delay: 300    # 5 minutos para que requests en vuelo terminen
+
+        # Access logs en S3 para análisis de tráfico y auditoría
+        access_logs_enabled: true
+        access_logs_bucket:  "shopapi-alb-logs-ACCOUNT_ID_PLACEHOLDER"
+        access_logs_prefix:  "prod-alb"
+
+        # Health check conservador: más tolerante antes de marcar unhealthy
+        healthy_threshold:   3
+        unhealthy_threshold: 5
+
+    # ── ECS Service (API) ─────────────────────────────────────────────────────
+    ecs-service:
+      metadata:
+        component: ecs-service
+      vars:
+        service_name:    "shopapi-api"
+        container_image: "ACCOUNT_ID_PLACEHOLDER.dkr.ecr.eu-west-1.amazonaws.com/shopapi/api:latest"
+        container_port:  8080
+        cpu:    1024
+        memory: 2048
+
+        desired_count: 4
+        min_tasks:     2   # Nunca menos de 2 tasks en prod
+        max_tasks:     20  # Capacidad de absorber picos de tráfico
+
+        # Prod API: FARGATE puro — sin interrupciones por Spot
+        capacity_provider_strategy:
+          - capacity_provider: "FARGATE"
+            base:   4      # Mantener las 4 tasks en FARGATE On-Demand
+            weight: 1
+
+        log_retention_days: 90  # 90 días para auditoría
+
+        # Auto Scaling conservador: escala antes de llegar a saturación
+        scale_up_cpu_threshold:   50
+        scale_down_cpu_threshold: 20
+
+        # Sin scale-down nocturno: servicio 24/7
+        enable_scheduled_scaling: false
+
+        # Alarmas de CloudWatch para el equipo de operaciones
+        ops_email:                 "ops-team@shopapi.com"
+        alarm_5xx_threshold:       1    # 1% de errores = alarma
+        alarm_latency_p99_seconds: 0.5  # 500ms P99 = alarma
+
+        # Circuit Breaker: rollback automático si el deploy falla
+        deployment_circuit_breaker_enabled:  true
+        deployment_circuit_breaker_rollback: true
+
+        # Rolling update: mantener siempre 4 tasks (no bajar durante deploy)
+        deployment_maximum_percent:         200
+        deployment_minimum_healthy_percent: 100

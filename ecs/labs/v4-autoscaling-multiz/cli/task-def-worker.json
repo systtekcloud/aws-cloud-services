@@ -1,0 +1,52 @@
+{
+  "family": "shopapi-worker",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/shopapi-execution-role",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/shopapi-task-role",
+  "containerDefinitions": [
+    {
+      "name": "shopapi-worker",
+      "image": "ACCOUNT_ID.dkr.ecr.eu-west-1.amazonaws.com/shopapi/api:IMAGE_TAG",
+      "essential": true,
+      "environment": [
+        { "name": "APP_ENV",       "value": "production" },
+        { "name": "APP_VERSION",   "value": "0.4.0" },
+        { "name": "WORKER_MODE",   "value": "true" },
+        { "name": "SQS_ORDERS_URL","value": "SQS_QUEUE_URL_PLACEHOLDER" }
+      ],
+      "secrets": [
+        {
+          "name": "DB_HOST",
+          "valueFrom": "arn:aws:secretsmanager:eu-west-1:ACCOUNT_ID:secret:shopapi/prod/db:host::"
+        },
+        {
+          "name": "DB_PASSWORD",
+          "valueFrom": "arn:aws:secretsmanager:eu-west-1:ACCOUNT_ID:secret:shopapi/prod/db:password::"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/shopapi",
+          "awslogs-region": "eu-west-1",
+          "awslogs-stream-prefix": "shopapi-worker"
+        }
+      },
+      "healthCheck": {
+        "command": [
+          "CMD",
+          "python", "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 20
+      },
+      "stopTimeout": 120
+    }
+  ]
+}

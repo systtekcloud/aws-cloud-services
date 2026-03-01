@@ -1,0 +1,15 @@
+################################################################################
+# globals.yaml — Variables globales heredadas por todos los stacks
+################################################################################
+
+vars:
+  project: ec2lab
+  namespace: ec2lab
+  terraform_state_bucket_suffix: "tfstate"
+
+# Configuración de backend S3 (compartida)
+backend:
+  s3:
+    encrypt: true
+    region: "eu-west-1"
+    dynamodb_table: "terraform-locks"

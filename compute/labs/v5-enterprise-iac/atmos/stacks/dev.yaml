@@ -1,0 +1,57 @@
+################################################################################
+# stacks/dev.yaml — Stack del entorno de desarrollo
+# Uso: atmos terraform plan vpc -s dev
+################################################################################
+
+import:
+  - globals
+
+vars:
+  stage: dev
+  environment: dev
+  aws_region: eu-west-1
+  single_nat_gateway: true    # Dev: ahorra coste
+
+# Backend S3 para dev
+backend:
+  s3:
+    bucket: "tfstate-ec2lab-dev-{{ .vars.aws_account_id }}"
+    region: "eu-west-1"
+
+# Componentes y sus variables específicas de dev
+components:
+  terraform:
+    vpc:
+      vars:
+        vpc_cidr: "10.0.0.0/16"
+        public_subnets_cidrs:
+          - "10.0.1.0/24"
+          - "10.0.2.0/24"
+          - "10.0.3.0/24"
+        private_subnets_cidrs:
+          - "10.0.11.0/24"
+          - "10.0.12.0/24"
+          - "10.0.13.0/24"
+        enable_nat_gateway: true
+        single_nat_gateway: true
+
+    compute:
+      vars:
+        instance_type: t3.micro
+        asg_min_size: 1
+        asg_max_size: 4
+        asg_desired_capacity: 1
+      # Dependencia de outputs del componente vpc en el mismo stack
+      env:
+        - name: TF_VAR_vpc_id
+          value: "{{ .components.terraform.vpc.outputs.vpc_id }}"
+        - name: TF_VAR_public_subnet_ids
+          value: "{{ .components.terraform.vpc.outputs.public_subnet_ids | toJson }}"
+        - name: TF_VAR_private_subnet_ids
+          value: "{{ .components.terraform.vpc.outputs.private_subnet_ids | toJson }}"
+
+    database:
+      vars:
+        db_instance_class: db.t3.medium
+        redis_node_type: cache.t3.micro
+        db_name: shopdb

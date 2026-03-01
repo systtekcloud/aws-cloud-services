@@ -1,0 +1,47 @@
+################################################################################
+# stacks/prod.yaml — Stack de producción
+# Uso: atmos terraform plan vpc -s prod
+################################################################################
+
+import:
+  - globals
+
+vars:
+  stage: prod
+  environment: prod
+  aws_region: eu-west-1
+  single_nat_gateway: false   # Prod: NAT por AZ para HA
+
+backend:
+  s3:
+    bucket: "tfstate-ec2lab-prod-{{ .vars.aws_account_id }}"
+    region: "eu-west-1"
+
+components:
+  terraform:
+    vpc:
+      vars:
+        vpc_cidr: "10.1.0.0/16"
+        public_subnets_cidrs:
+          - "10.1.1.0/24"
+          - "10.1.2.0/24"
+          - "10.1.3.0/24"
+        private_subnets_cidrs:
+          - "10.1.11.0/24"
+          - "10.1.12.0/24"
+          - "10.1.13.0/24"
+        enable_nat_gateway: true
+        single_nat_gateway: false
+
+    compute:
+      vars:
+        instance_type: t3.small
+        asg_min_size: 2
+        asg_max_size: 10
+        asg_desired_capacity: 2
+
+    database:
+      vars:
+        db_instance_class: db.t3.medium
+        redis_node_type: cache.t3.micro
+        db_name: shopdb

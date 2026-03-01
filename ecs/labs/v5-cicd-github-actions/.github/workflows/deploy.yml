@@ -1,0 +1,402 @@
+# ==============================================================================
+# CD Workflow: ShopAPI — Deploy a ECS (dev y prod)
+# ==============================================================================
+#
+# Se activa en:
+#   - Push a main (merge de un PR)
+#
+# Jobs:
+#   1. deploy-dev  — automático, environment: dev
+#   2. deploy-prod — requiere aprobación manual, environment: prod
+#
+# Estrategia:
+#   - Descarga la task definition actual de ECS
+#   - Reemplaza la imagen con la nueva (tag SHA del commit)
+#   - Registra la nueva task definition como nueva revisión
+#   - Actualiza el ECS service con la nueva task definition
+#   - Espera a que el rolling update complete (wait-for-service-stability)
+#
+# Autenticación: OIDC (sin access keys estáticas)
+# Región: eu-west-1
+# ==============================================================================
+
+name: CD — Deploy ECS
+
+on:
+  push:
+    branches: [main]        # Solo en merges a main (producción)
+
+# Concurrency: evita deploys simultáneos que podrían pisar uno al otro
+# Si hay un deploy en curso y llega otro, el anterior se cancela
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false   # false = el deploy en curso termina antes de empezar el nuevo
+
+# Variables de entorno globales
+env:
+  AWS_REGION: eu-west-1
+  ECR_REPOSITORY: shopapi/api
+  ECS_CLUSTER: shopapi-cluster
+  # Nota: para dev y prod se pueden usar clusters diferentes si los tienes separados
+  # ECS_CLUSTER_DEV: shopapi-cluster-dev
+  # ECS_CLUSTER_PROD: shopapi-cluster-prod
+
+# ==============================================================================
+# Job 1: Deploy a DEV
+#
+# Se ejecuta automáticamente cuando hay push a main.
+# Environment 'dev' en GitHub puede tener:
+#   - Secretos/variables específicos de dev (APP_ENV, DATABASE_URL, etc.)
+#   - Sin reglas de protección (deploy automático sin aprobación)
+# ==============================================================================
+jobs:
+  deploy-dev:
+    name: Deploy → DEV
+    runs-on: ubuntu-latest
+    environment: dev          # Usa el environment 'dev' de GitHub (secretos y variables de dev)
+
+    permissions:
+      id-token: write         # Obligatorio para OIDC
+      contents: read          # Para checkout
+      deployments: write      # Para actualizar el estado del deployment en GitHub
+
+    # Variables específicas del entorno DEV
+    env:
+      ECS_SERVICE: shopapi-api
+      TASK_DEFINITION_FAMILY: shopapi-api
+      CONTAINER_NAME: shopapi-api
+      APP_ENV: development
+
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------
+      # Preparar el tag SHA de la imagen
+      # Usamos el SHA corto del commit que disparó el push a main
+      # ------------------------------------------------------------------
+      - name: Preparar metadatos del deploy
+        id: meta
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+          echo "image-tag=${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "Deploy DEV - Imagen con tag: $SHORT_SHA"
+          echo "Commit: $GITHUB_SHA"
+          echo "Actor: $GITHUB_ACTOR"
+
+      # ------------------------------------------------------------------
+      # Autenticación con AWS via OIDC
+      # ------------------------------------------------------------------
+      - name: Autenticar con AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/shopapi-github-actions-role
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: GitHubActions-CD-DEV-${{ steps.meta.outputs.image-tag }}
+
+      # ------------------------------------------------------------------
+      # Login en ECR para obtener la URL del registry
+      # El output 'registry' se usa para construir el URI completo de la imagen
+      # ------------------------------------------------------------------
+      - name: Login en Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # ------------------------------------------------------------------
+      # Verificar que la imagen existe en ECR antes de intentar el deploy
+      # Evita registrar una task definition con una imagen inexistente
+      # ------------------------------------------------------------------
+      - name: Verificar imagen en ECR
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.meta.outputs.image-tag }}
+        run: |
+          echo "Verificando imagen: $REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          aws ecr describe-images \
+            --repository-name "$ECR_REPOSITORY" \
+            --image-ids imageTag="$IMAGE_TAG" \
+            --region "$AWS_REGION" \
+            --query 'imageDetails[0].{Tag:imageTags[0], PushedAt:imagePushedAt, Size:imageSizeInBytes}' \
+            --output table
+          echo "Imagen verificada correctamente"
+
+      # ------------------------------------------------------------------
+      # Descargar la task definition actual de ECS
+      #
+      # Obtenemos el JSON de la última revisión activa de la task definition.
+      # Esto incluye toda la configuración: CPU, memoria, volumes, secrets,
+      # log drivers, etc. Solo cambiaremos la imagen del contenedor.
+      #
+      # IMPORTANTE: el campo 'taskDefinitionArn' y otros campos de solo lectura
+      # deben eliminarse antes de registrar una nueva revisión.
+      # La action amazon-ecs-render-task-definition hace esto automáticamente.
+      # ------------------------------------------------------------------
+      - name: Descargar task definition actual
+        run: |
+          echo "Descargando task definition: $TASK_DEFINITION_FAMILY"
+          aws ecs describe-task-definition \
+            --task-definition "$TASK_DEFINITION_FAMILY" \
+            --region "$AWS_REGION" \
+            --query taskDefinition \
+            > task-definition.json
+          echo "Task definition descargada:"
+          cat task-definition.json | python3 -m json.tool | grep -E '"(family|revision|containerDefinitions|image)"' | head -10
+
+      # ------------------------------------------------------------------
+      # Render: crear nueva task definition con la imagen actualizada
+      #
+      # Esta action modifica el JSON de la task definition:
+      # - Reemplaza el campo 'image' del contenedor especificado
+      # - Añade/actualiza variables de entorno (environment-variables)
+      # - Elimina campos de solo lectura (arn, revision, etc.)
+      # - Guarda el resultado en un archivo temporal
+      #
+      # Output: 'task-definition' → ruta al JSON modificado
+      # ------------------------------------------------------------------
+      - name: Render nueva task definition (DEV)
+        id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.meta.outputs.image-tag }}
+          # Variables de entorno inyectadas en el contenedor
+          # Formato: KEY=VALUE (una por línea)
+          environment-variables: |
+            APP_ENV=${{ env.APP_ENV }}
+            APP_VERSION=${{ steps.meta.outputs.image-tag }}
+            DEPLOY_TIME=${{ github.event.head_commit.timestamp }}
+            GIT_COMMIT=${{ github.sha }}
+
+      # ------------------------------------------------------------------
+      # Deploy: registrar nueva task definition y actualizar el service
+      #
+      # Pasos internos de esta action:
+      # 1. Llama a ecs:RegisterTaskDefinition con el JSON modificado → nueva revisión
+      # 2. Llama a ecs:UpdateService para que el service use la nueva revisión
+      # 3. Con wait-for-service-stability=true: espera hasta que:
+      #    - Todas las tasks nuevas estén en estado RUNNING
+      #    - Las tasks antiguas estén en estado DRAINED
+      #    - El ALB haya registrado las nuevas tasks como healthy
+      # ------------------------------------------------------------------
+      - name: Deploy a ECS (DEV)
+        id: deploy
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+          wait-for-minutes: 15   # Timeout: si tarda más de 15 min, falla el job
+
+      # ------------------------------------------------------------------
+      # Verificación post-deploy: comprobar que la app responde correctamente
+      # ------------------------------------------------------------------
+      - name: Verificar deploy en DEV
+        run: |
+          echo "=== Estado del servicio ECS después del deploy ==="
+          aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE" \
+            --region "$AWS_REGION" \
+            --query 'services[0].{Status:status, Running:runningCount, Desired:desiredCount, Pending:pendingCount, TaskDef:taskDefinition}' \
+            --output table
+
+          echo "=== Última revisión de task definition ==="
+          aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE" \
+            --region "$AWS_REGION" \
+            --query 'services[0].taskDefinition' \
+            --output text
+
+          echo "=== Eventos recientes del servicio ==="
+          aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE" \
+            --region "$AWS_REGION" \
+            --query 'services[0].events[0:3]' \
+            --output text
+
+      # ------------------------------------------------------------------
+      # Resumen del deploy en la UI de GitHub Actions
+      # ------------------------------------------------------------------
+      - name: Crear resumen del deploy DEV
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          if [ "$STATUS" = "success" ]; then
+            EMOJI="OK"
+          else
+            EMOJI="FALLO"
+          fi
+          echo "## Deploy DEV — $EMOJI" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Campo | Valor |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Estado** | $STATUS |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Entorno** | DEV |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Cluster** | \`${{ env.ECS_CLUSTER }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Service** | \`${{ env.ECS_SERVICE }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Imagen** | \`${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.meta.outputs.image-tag }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Commit** | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Actor** | @${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+
+# ==============================================================================
+# Job 2: Deploy a PROD
+#
+# IMPORTANTE: Este job tiene 'environment: prod' configurado con:
+#   - Required reviewers: al menos 1 revisor debe aprobar antes de ejecutarse
+#   - El job queda en pausa (estado "waiting") hasta recibir aprobación
+#   - Los revisores reciben notificación por email
+#   - Aprobación disponible en: GitHub UI → Actions → run → Review deployments
+#
+# Para configurar los revisores:
+#   Repositorio → Settings → Environments → prod → Required reviewers
+# ==============================================================================
+  deploy-prod:
+    name: Deploy → PROD
+    runs-on: ubuntu-latest
+    environment: prod         # Environment con aprobación manual configurada en GitHub
+    needs: deploy-dev         # Solo si dev fue exitoso
+
+    permissions:
+      id-token: write
+      contents: read
+      deployments: write
+
+    env:
+      ECS_SERVICE: shopapi-api
+      TASK_DEFINITION_FAMILY: shopapi-api
+      CONTAINER_NAME: shopapi-api
+      APP_ENV: production
+
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      # Nota: cuando este job se reanuda tras la aprobación, el SHA del commit
+      # es el mismo que disparó el workflow original. La imagen ya está en ECR.
+      - name: Preparar metadatos del deploy
+        id: meta
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+          echo "image-tag=${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "Deploy PROD - Imagen con tag: $SHORT_SHA"
+          echo "Aprobado por: $GITHUB_ACTOR"
+          echo "Commit original: $GITHUB_SHA"
+
+      - name: Autenticar con AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/shopapi-github-actions-role
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: GitHubActions-CD-PROD-${{ steps.meta.outputs.image-tag }}
+
+      - name: Login en Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # ------------------------------------------------------------------
+      # Verificar que la imagen existe en ECR
+      # La imagen fue pusheada por el CI workflow. Si llegamos hasta aquí
+      # (aprobación concedida), la imagen debería existir.
+      # ------------------------------------------------------------------
+      - name: Verificar imagen en ECR (PROD)
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.meta.outputs.image-tag }}
+        run: |
+          echo "Verificando imagen para PROD: $REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          MANIFEST=$(aws ecr batch-get-image \
+            --repository-name "$ECR_REPOSITORY" \
+            --image-ids imageTag="$IMAGE_TAG" \
+            --region "$AWS_REGION" \
+            --query 'images[0].imageManifest' \
+            --output text)
+          if [ -z "$MANIFEST" ] || [ "$MANIFEST" = "None" ]; then
+            echo "ERROR: Imagen no encontrada en ECR: $ECR_REPOSITORY:$IMAGE_TAG"
+            echo "Asegúrate de que el CI workflow completó correctamente."
+            exit 1
+          fi
+          echo "Imagen verificada correctamente para PROD"
+
+      - name: Descargar task definition actual (PROD)
+        run: |
+          echo "Descargando task definition para PROD: $TASK_DEFINITION_FAMILY"
+          aws ecs describe-task-definition \
+            --task-definition "$TASK_DEFINITION_FAMILY" \
+            --region "$AWS_REGION" \
+            --query taskDefinition \
+            > task-definition.json
+          echo "Task definition descargada para PROD"
+
+      # ------------------------------------------------------------------
+      # Render para PROD: misma imagen pero con APP_ENV=production
+      # Las variables de entorno específicas de producción se configuran aquí
+      # (o idealmente via Secrets Manager, no como variables planas)
+      # ------------------------------------------------------------------
+      - name: Render nueva task definition (PROD)
+        id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.meta.outputs.image-tag }}
+          environment-variables: |
+            APP_ENV=${{ env.APP_ENV }}
+            APP_VERSION=${{ steps.meta.outputs.image-tag }}
+            DEPLOY_TIME=${{ github.event.head_commit.timestamp }}
+            GIT_COMMIT=${{ github.sha }}
+
+      # ------------------------------------------------------------------
+      # Deploy a PROD con timeout más generoso (prod puede tener más tasks)
+      # ------------------------------------------------------------------
+      - name: Deploy a ECS (PROD)
+        id: deploy
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+          wait-for-minutes: 20   # Más tiempo para prod (más tasks, más lento el rolling)
+
+      - name: Verificar deploy en PROD
+        run: |
+          echo "=== Estado del servicio ECS PROD después del deploy ==="
+          aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE" \
+            --region "$AWS_REGION" \
+            --query 'services[0].{Status:status, Running:runningCount, Desired:desiredCount, Pending:pendingCount, TaskDef:taskDefinition}' \
+            --output table
+
+          echo "=== Eventos recientes del servicio PROD ==="
+          aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE" \
+            --region "$AWS_REGION" \
+            --query 'services[0].events[0:3]' \
+            --output text
+
+      - name: Crear resumen del deploy PROD
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          if [ "$STATUS" = "success" ]; then
+            EMOJI="OK"
+          else
+            EMOJI="FALLO"
+          fi
+          echo "## Deploy PROD — $EMOJI" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Campo | Valor |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Estado** | $STATUS |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Entorno** | PRODUCTION |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Cluster** | \`${{ env.ECS_CLUSTER }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Service** | \`${{ env.ECS_SERVICE }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Imagen** | \`${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.meta.outputs.image-tag }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Commit** | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Desplegado por** | @${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY

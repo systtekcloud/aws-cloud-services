@@ -1,0 +1,90 @@
+################################################################################
+# plan.yml — Terraform plan en cada Pull Request
+# Usa OIDC para autenticación sin access keys (best practice)
+################################################################################
+
+name: Terraform Plan
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'v5-enterprise-iac/terragrunt/**'
+      - 'v5-enterprise-iac/atmos/**'
+
+permissions:
+  id-token: write   # OIDC
+  contents: read
+  pull-requests: write  # Para comentar el plan en el PR
+
+env:
+  TF_VERSION: "1.7.0"
+  TERRAGRUNT_VERSION: "0.55.0"
+  AWS_REGION: "eu-west-1"
+
+jobs:
+  plan:
+    name: Terraform Plan (${{ matrix.environment }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        environment: [dev]   # Solo dev en PRs; prod requiere aprobación manual
+
+    defaults:
+      run:
+        working-directory: v5-enterprise-iac/terragrunt/${{ matrix.environment }}/eu-west-1
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Install Terragrunt
+        run: |
+          curl -Lo terragrunt \
+            "https://github.com/gruntwork-io/terragrunt/releases/download/v${TERRAGRUNT_VERSION}/terragrunt_linux_amd64"
+          chmod +x terragrunt
+          sudo mv terragrunt /usr/local/bin/
+
+      # OIDC: no hace falta guardar access keys en secretos
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubActions-${{ matrix.environment }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terragrunt Init
+        run: terragrunt run-all init --terragrunt-non-interactive
+
+      - name: Terragrunt Plan
+        id: plan
+        run: |
+          terragrunt run-all plan \
+            --terragrunt-non-interactive \
+            -out=tfplan.binary 2>&1 | tee plan-output.txt
+        continue-on-error: true
+
+      - name: Comentar plan en PR
+        uses: actions/github-script@v7
+        if: github.event_name == 'pull_request'
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('v5-enterprise-iac/terragrunt/${{ matrix.environment }}/eu-west-1/plan-output.txt', 'utf8');
+            const truncated = output.length > 60000 ? output.substring(0, 60000) + '\n...(truncado)' : output;
+            const body = `## Terraform Plan — \`${{ matrix.environment }}\`\n\`\`\`hcl\n${truncated}\n\`\`\``;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+      - name: Fail si plan falla
+        if: steps.plan.outcome == 'failure'
+        run: exit 1

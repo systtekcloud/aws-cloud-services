@@ -1,0 +1,64 @@
+{
+  "family": "shopapi-api",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "EXECUTION_ROLE_ARN_PLACEHOLDER",
+  "containerDefinitions": [
+    {
+      "name": "shopapi-api",
+      "image": "ACCOUNT_ID.dkr.ecr.eu-west-1.amazonaws.com/shopapi/api:IMAGE_TAG_PLACEHOLDER",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8080,
+          "hostPort": 8080,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        {
+          "name": "APP_ENV",
+          "value": "production"
+        },
+        {
+          "name": "APP_VERSION",
+          "value": "0.1.0"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/shopapi",
+          "awslogs-region": "eu-west-1",
+          "awslogs-stream-prefix": "shopapi-api"
+        }
+      },
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "curl -f http://localhost:8080/health || exit 1"
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 10
+      },
+      "readonlyRootFilesystem": false,
+      "stopTimeout": 30
+    }
+  ],
+  "tags": [
+    {
+      "key": "Project",
+      "value": "shopapi"
+    },
+    {
+      "key": "Lab",
+      "value": "v1"
+    }
+  ]
+}

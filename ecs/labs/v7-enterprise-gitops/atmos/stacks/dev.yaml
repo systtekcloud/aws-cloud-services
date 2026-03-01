@@ -1,0 +1,91 @@
+# =============================================================================
+# Stack: shopapi-dev
+# =============================================================================
+#
+# Define los componentes que se despliegan en el entorno de desarrollo.
+# Los valores aquí sobreescriben los defaults del componente.
+#
+# Ejecutar:
+#   atmos terraform plan  vpc           -s shopapi-dev
+#   atmos terraform apply vpc           -s shopapi-dev
+#   atmos terraform apply ecs-cluster   -s shopapi-dev
+#   atmos terraform apply alb           -s shopapi-dev
+#   atmos terraform apply ecs-service   -s shopapi-dev
+#
+# O desplegar todo el stack de una vez:
+#   atmos workflow deploy-dev -f atmos/workflows/deploy.yaml
+# =============================================================================
+
+# Metadatos del stack
+vars:
+  environment: "dev"
+  aws_region:  "eu-west-1"
+  account_id:  "ACCOUNT_ID_PLACEHOLDER"  # Reemplazar antes de desplegar
+
+# =============================================================================
+# COMPONENTES
+# =============================================================================
+# Cada componente referencia un módulo Terraform en atmos/components/terraform/
+# Las vars aquí sobreescriben las variables por defecto del componente.
+
+components:
+  terraform:
+
+    # ── VPC ──────────────────────────────────────────────────────────────────
+    vpc:
+      metadata:
+        component: vpc  # Referencia a atmos/components/terraform/vpc/
+      vars:
+        vpc_cidr:           "10.1.0.0/16"
+        availability_zones: ["eu-west-1a"]  # Una sola AZ en dev
+        single_nat_gateway: true            # Un solo NAT Gateway para ahorrar coste
+
+    # ── ECS Cluster ──────────────────────────────────────────────────────────
+    ecs-cluster:
+      metadata:
+        component: ecs-cluster
+      # Sin vars adicionales: usa los defaults del componente
+      # container_insights = false (por defecto en el componente)
+
+    # ── ALB ──────────────────────────────────────────────────────────────────
+    alb:
+      metadata:
+        component: alb
+      vars:
+        deletion_protection:  false
+        deregistration_delay: 30       # 30s en dev para deploys más rápidos
+
+    # ── ECS Service (API) ─────────────────────────────────────────────────────
+    ecs-service:
+      metadata:
+        component: ecs-service
+      vars:
+        service_name:   "shopapi-api"
+        container_image: "ACCOUNT_ID_PLACEHOLDER.dkr.ecr.eu-west-1.amazonaws.com/shopapi/api:latest"
+        container_port:  8080
+        cpu:    256   # 0.25 vCPU — mínimo para dev
+        memory: 512   # 512 MB
+
+        desired_count: 1
+        min_tasks:     1
+        max_tasks:     5
+
+        # Dev: 80% Spot (coste mínimo; reinicios ocasionales son aceptables)
+        capacity_provider_strategy:
+          - capacity_provider: "FARGATE_SPOT"
+            weight: 4
+            base:   0
+          - capacity_provider: "FARGATE"
+            weight: 1
+            base:   1  # Al menos 1 task On-Demand siempre
+
+        log_retention_days: 7
+
+        # Auto Scaling: escala cuando CPU supera 70%
+        scale_up_cpu_threshold:   70
+        scale_down_cpu_threshold: 30
+
+        # Scale-down nocturno para ahorrar en horas fuera de trabajo
+        enable_scheduled_scaling: true
+        scale_down_cron: "cron(0 20 * * ? *)"  # 20:00 UTC (21:00 CET)
+        scale_up_cron:   "cron(0 7 * * ? *)"   # 07:00 UTC (08:00 CET)

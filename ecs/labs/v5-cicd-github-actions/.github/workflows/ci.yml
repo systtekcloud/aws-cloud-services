@@ -1,0 +1,280 @@
+# ==============================================================================
+# CI Workflow: ShopAPI — Lint, Test, Build y Push a ECR
+# ==============================================================================
+#
+# Se activa en:
+#   - Push a cualquier rama (para detectar errores temprano)
+#   - Pull Requests hacia main (gate antes del merge)
+#
+# Jobs:
+#   1. lint      — flake8 (estilo y errores básicos)
+#   2. test      — pytest (tests unitarios e integración)
+#   3. build-push — Docker build + push a ECR (solo en push, no en PR)
+#
+# Autenticación con AWS: OIDC (sin access keys estáticas)
+# Región: eu-west-1
+# ==============================================================================
+
+name: CI — Build & Push
+
+on:
+  push:
+    branches: ["**"]        # Cualquier rama: main, feature/*, hotfix/*, etc.
+  pull_request:
+    branches: [main]        # PRs hacia main activan lint + test (sin push ECR)
+
+# Variables de entorno globales accesibles en todos los jobs y steps
+env:
+  AWS_REGION: eu-west-1
+  ECR_REPOSITORY: shopapi/api      # Nombre del repositorio en ECR (sin registry)
+  PYTHON_VERSION: "3.12"
+
+# ==============================================================================
+# Job 1: Lint
+# Verifica el estilo del código con flake8.
+# Falla rápido: si el código no cumple el estilo, no se ejecutan los tests.
+# ==============================================================================
+jobs:
+  lint:
+    name: Lint (flake8)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip                                  # Caché de paquetes pip para acelerar
+
+      - name: Instalar flake8
+        run: pip install flake8
+
+      - name: Ejecutar lint
+        # E501: líneas > 88 chars (usamos 88 para compatibilidad con black)
+        # W503: line break before binary operator (estilo moderno aceptado)
+        run: |
+          flake8 app/ \
+            --max-line-length=88 \
+            --extend-ignore=E501,W503 \
+            --count \
+            --statistics
+
+# ==============================================================================
+# Job 2: Test
+# Ejecuta los tests con pytest.
+# Necesita: lint (no tiene sentido testear código con errores de estilo)
+# ==============================================================================
+  test:
+    name: Test (pytest)
+    runs-on: ubuntu-latest
+    needs: lint             # Solo corre si lint pasa
+
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Instalar dependencias
+        run: |
+          pip install --upgrade pip
+          pip install -r app/requirements.txt
+          # httpx: cliente HTTP async para TestClient de FastAPI
+          pip install pytest pytest-asyncio httpx coverage
+
+      - name: Ejecutar tests
+        # La condición evita el error si no hay tests todavía (útil al inicio del proyecto)
+        if: hashFiles('app/tests/**') != ''
+        run: |
+          pytest app/tests/ \
+            -v \
+            --tb=short \
+            --cov=app \
+            --cov-report=term-missing \
+            --cov-fail-under=0    # En producción: subir a 70 o más
+
+      - name: Subir informe de cobertura (opcional)
+        if: hashFiles('app/tests/**') != '' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: .coverage
+          retention-days: 7
+
+# ==============================================================================
+# Job 3: Build & Push ECR
+# Construye la imagen Docker y la sube a ECR.
+#
+# Solo se ejecuta en 'push' (no en pull_request), porque:
+# - En PRs no queremos subir imágenes no revisadas a ECR
+# - El merge a main ya activará el workflow de CD
+#
+# Outputs:
+#   - image: URI completo de la imagen con el tag SHA
+#             Ejemplo: 123456789.dkr.ecr.eu-west-1.amazonaws.com/shopapi/api:abc1234
+#             Este output es consumido por el workflow deploy.yml
+# ==============================================================================
+  build-push:
+    name: Build & Push ECR
+    runs-on: ubuntu-latest
+    needs: test             # Solo construye si los tests pasan
+
+    # Solo en push directo a ramas (no en pull_request)
+    if: github.event_name == 'push'
+
+    # IMPORTANTE: estos permisos son OBLIGATORIOS para OIDC
+    # id-token: write → permite al runner solicitar JWT al OIDC provider de GitHub
+    # contents: read  → permite hacer checkout del código
+    permissions:
+      id-token: write
+      contents: read
+
+    # Output que otros jobs/workflows pueden consumir
+    outputs:
+      image: ${{ steps.build.outputs.image }}         # URI completo con tag SHA
+      image-tag: ${{ steps.meta.outputs.image-tag }}  # Solo el tag SHA corto
+
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------
+      # Preparar metadatos de la imagen
+      # SHA corto de 7 caracteres: más legible que el SHA completo (40 chars)
+      # Ejemplo: github.sha = "abc1234def5678..." → IMAGE_TAG = "abc1234"
+      # ------------------------------------------------------------------
+      - name: Preparar metadatos de la imagen
+        id: meta
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+          BRANCH_NAME="${GITHUB_REF_NAME//\//-}"   # feature/x → feature-x (sin slashes)
+          echo "image-tag=${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "branch-tag=${BRANCH_NAME}" >> $GITHUB_OUTPUT
+          echo "--- Metadatos ---"
+          echo "SHA completo: $GITHUB_SHA"
+          echo "SHA corto: $SHORT_SHA"
+          echo "Rama: $GITHUB_REF_NAME"
+          echo "Tag de rama: $BRANCH_NAME"
+
+      # ------------------------------------------------------------------
+      # Autenticación con AWS usando OIDC
+      #
+      # Esta action realiza internamente:
+      # 1. Solicita JWT a: https://token.actions.githubusercontent.com
+      # 2. Llama a sts:AssumeRoleWithWebIdentity con el JWT
+      # 3. Establece las variables de entorno AWS_ACCESS_KEY_ID,
+      #    AWS_SECRET_ACCESS_KEY y AWS_SESSION_TOKEN (credenciales efímeras)
+      #
+      # El rol debe tener una trust policy que permita:
+      #   Principal.Federated: arn:aws:iam::CUENTA:oidc-provider/token.actions.githubusercontent.com
+      #   Condition: sub = repo:TU_USUARIO/shopapi:*
+      # ------------------------------------------------------------------
+      - name: Autenticar con AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/shopapi-github-actions-role
+          aws-region: ${{ env.AWS_REGION }}
+          # role-session-name ayuda a identificar el origen en CloudTrail
+          role-session-name: GitHubActions-CI-${{ steps.meta.outputs.image-tag }}
+
+      # ------------------------------------------------------------------
+      # Login en ECR
+      # Obtiene credenciales temporales para Docker desde ECR.
+      # Output 'registry': URL del registry (ej: 123456789.dkr.ecr.eu-west-1.amazonaws.com)
+      # ------------------------------------------------------------------
+      - name: Login en Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # ------------------------------------------------------------------
+      # Build, tag y push de la imagen Docker
+      #
+      # Tags que se crean:
+      #   1. SHA corto (inmutable): identifica exactamente qué código contiene
+      #      Ejemplo: 123456789.dkr.ecr.eu-west-1.amazonaws.com/shopapi/api:abc1234
+      #
+      #   2. Rama (semi-mutable): útil para entornos de preview
+      #      Ejemplo: .../shopapi/api:main
+      #
+      #   3. latest (mutable): apunta siempre al último push a main
+      #      Solo se actualiza si estamos en la rama main
+      #
+      # El output 'image' contiene el URI completo con tag SHA (para deploy.yml)
+      # ------------------------------------------------------------------
+      - name: Build, tag y push a ECR
+        id: build
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.meta.outputs.image-tag }}
+          BRANCH_TAG: ${{ steps.meta.outputs.branch-tag }}
+        run: |
+          FULL_IMAGE="$REGISTRY/$ECR_REPOSITORY"
+
+          echo "--- Construyendo imagen ---"
+          echo "Registry: $REGISTRY"
+          echo "Repositorio: $ECR_REPOSITORY"
+          echo "Tag SHA: $IMAGE_TAG"
+          echo "Tag rama: $BRANCH_TAG"
+
+          # Build de la imagen
+          # --label añade metadatos a la imagen (buena práctica)
+          docker build \
+            --label "git.sha=$GITHUB_SHA" \
+            --label "git.branch=$GITHUB_REF_NAME" \
+            --label "build.run=$GITHUB_RUN_ID" \
+            --label "build.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -t "$FULL_IMAGE:$IMAGE_TAG" \
+            ./app
+
+          echo "--- Creando tags adicionales ---"
+
+          # Tag de rama (ej: main, develop, feature-nueva-funcionalidad)
+          docker tag "$FULL_IMAGE:$IMAGE_TAG" "$FULL_IMAGE:$BRANCH_TAG"
+
+          # Tag 'latest' solo en rama main (evitar que otras ramas lo sobreescriban)
+          if [ "$GITHUB_REF_NAME" = "main" ]; then
+            docker tag "$FULL_IMAGE:$IMAGE_TAG" "$FULL_IMAGE:latest"
+          fi
+
+          echo "--- Subiendo imágenes a ECR ---"
+
+          # Push del tag SHA (siempre)
+          docker push "$FULL_IMAGE:$IMAGE_TAG"
+
+          # Push del tag de rama (siempre)
+          docker push "$FULL_IMAGE:$BRANCH_TAG"
+
+          # Push de latest (solo en main)
+          if [ "$GITHUB_REF_NAME" = "main" ]; then
+            docker push "$FULL_IMAGE:latest"
+          fi
+
+          echo "--- Push completado ---"
+          docker images "$FULL_IMAGE" --format "table {{.Tag}}\t{{.Size}}\t{{.CreatedAt}}"
+
+          # Output para uso en workflow de deploy
+          echo "image=$FULL_IMAGE:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      # ------------------------------------------------------------------
+      # Resumen en la UI de GitHub Actions
+      # Visible en la pestaña "Summary" del workflow run
+      # ------------------------------------------------------------------
+      - name: Crear resumen del build
+        if: always()
+        run: |
+          echo "## Resultado del Build" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Campo | Valor |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Imagen** | \`${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Tag SHA** | \`${{ steps.meta.outputs.image-tag }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Rama** | \`${{ github.ref_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Commit** | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Actor** | @${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY

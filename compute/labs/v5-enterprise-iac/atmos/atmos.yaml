@@ -1,0 +1,36 @@
+################################################################################
+# atmos.yaml — Configuración principal de Atmos
+# https://atmos.tools/cli/configuration
+################################################################################
+
+base_path: "."
+
+components:
+  terraform:
+    base_path: "components/terraform"
+    apply_auto_approve: false
+    deploy_run_init: true
+    auto_generate_backend_file: true
+
+stacks:
+  base_path: "stacks"
+  included_paths:
+    - "**/*.yaml"
+  excluded_paths:
+    - "globals.yaml"
+  name_pattern: "{stage}"   # stack name = nombre del archivo yaml (dev, prod)
+
+# Logs
+logs:
+  file: "/dev/stderr"
+  level: Info
+
+# Integración con Terraform
+terraform:
+  deployment_tools:
+    terraform:
+      enabled: true
+
+# Workflows
+workflows:
+  base_path: "workflows"

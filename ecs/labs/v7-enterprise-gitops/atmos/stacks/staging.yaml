@@ -1,0 +1,83 @@
+# =============================================================================
+# Stack: shopapi-staging
+# =============================================================================
+#
+# Staging: réplica estructural de prod con menos capacidad y más Spot.
+# Objetivo: validar que los artifacts generados en CI funcionan exactamente
+# como en producción antes de promoverlos.
+#
+# Ejecutar:
+#   atmos terraform apply vpc         -s shopapi-staging
+#   atmos terraform apply ecs-cluster -s shopapi-staging
+#   atmos terraform apply alb         -s shopapi-staging
+#   atmos terraform apply ecs-service -s shopapi-staging
+#
+# O con workflow:
+#   atmos workflow deploy-staging -f atmos/workflows/deploy.yaml
+# =============================================================================
+
+vars:
+  environment: "staging"
+  aws_region:  "eu-west-1"
+  account_id:  "ACCOUNT_ID_PLACEHOLDER"
+
+components:
+  terraform:
+
+    # ── VPC ──────────────────────────────────────────────────────────────────
+    vpc:
+      metadata:
+        component: vpc
+      vars:
+        vpc_cidr:           "10.2.0.0/16"
+        availability_zones: ["eu-west-1a", "eu-west-1b"]  # 2 AZs como prod
+        # Un solo NAT en staging para ahorrar (~$33/mes extra por NAT adicional)
+        single_nat_gateway: true
+
+    # ── ECS Cluster ──────────────────────────────────────────────────────────
+    ecs-cluster:
+      metadata:
+        component: ecs-cluster
+      vars:
+        # Container Insights activado: validar métricas antes de habilitar en prod
+        container_insights: true
+
+    # ── ALB ──────────────────────────────────────────────────────────────────
+    alb:
+      metadata:
+        component: alb
+      vars:
+        deletion_protection:  false   # Permite destruir staging fácilmente
+        deregistration_delay: 30      # Deploys rápidos en staging
+
+    # ── ECS Service (API) ─────────────────────────────────────────────────────
+    ecs-service:
+      metadata:
+        component: ecs-service
+      vars:
+        service_name:    "shopapi-api"
+        container_image: "ACCOUNT_ID_PLACEHOLDER.dkr.ecr.eu-west-1.amazonaws.com/shopapi/api:latest"
+        container_port:  8080
+        cpu:    1024  # Igual que prod: detectar problemas de sizing en staging
+        memory: 2048  # Igual que prod
+
+        desired_count: 2
+        min_tasks:     1
+        max_tasks:     8
+
+        # Staging: 67% Spot para ahorrar pero también para validar SIGTERM handling
+        capacity_provider_strategy:
+          - capacity_provider: "FARGATE_SPOT"
+            weight: 2
+            base:   0
+          - capacity_provider: "FARGATE"
+            weight: 1
+            base:   1
+
+        log_retention_days: 30
+
+        scale_up_cpu_threshold:   60
+        scale_down_cpu_threshold: 25
+
+        # Sin scale-down: QA puede trabajar en cualquier horario
+        enable_scheduled_scaling: false
