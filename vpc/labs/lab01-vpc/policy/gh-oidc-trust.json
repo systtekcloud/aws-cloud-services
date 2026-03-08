@@ -2,16 +2,30 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "AllowMainBranchApply",
+      "Sid": "AllowDevelopBranchApplyDev",
       "Effect": "Allow",
       "Principal": {
-        "Federated": "arn:aws:iam:::oidc-provider/token.actions.githubusercontent.com"
+        "Federated": "arn:aws:iam::899237616120:oidc-provider/token.actions.githubusercontent.com"
       },
       "Action": "sts:AssumeRoleWithWebIdentity",
       "Condition": {
         "StringEquals": {
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-          "token.actions.githubusercontent.com:sub": "repo:TU_GITHUB_USER/TU_REPO:ref:refs/heads/main"
+          "token.actions.githubusercontent.com:sub": "repo:systtekcloud/aws-cloud-services:ref:refs/heads/develop"
+        }
+      }
+    },
+    {
+      "Sid": "AllowMainBranchApplyProd",
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::899237616120:oidc-provider/token.actions.githubusercontent.com"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+          "token.actions.githubusercontent.com:sub": "repo:systtekcloud/aws-cloud-services:ref:refs/heads/main"
         }
       }
     },
@@ -19,7 +33,7 @@
       "Sid": "AllowPullRequestPlan",
       "Effect": "Allow",
       "Principal": {
-        "Federated": "arn:aws:iam:::oidc-provider/token.actions.githubusercontent.com"
+        "Federated": "arn:aws:iam::899237616120:oidc-provider/token.actions.githubusercontent.com"
       },
       "Action": "sts:AssumeRoleWithWebIdentity",
       "Condition": {
@@ -27,7 +41,7 @@
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
         },
         "StringLike": {
-          "token.actions.githubusercontent.com:sub": "repo:TU_GITHUB_USER/TU_REPO:pull_request"
+          "token.actions.githubusercontent.com:sub": "repo:systtekcloud/aws-cloud-services:pull_request"
         }
       }
     }
