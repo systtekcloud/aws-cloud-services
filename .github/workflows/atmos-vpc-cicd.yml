@@ -39,28 +39,17 @@ permissions:
   pull-requests: write
 
 jobs:
-  # ── Plan ─────────────────────────────────────────────────────────────────────
-  # PR a develop → plan vpc-lab-dev
-  # PR a main    → plan vpc-lab-prod
-  # workflow_dispatch → plan el stack elegido en el input
-  plan:
-    name: Atmos Plan - ${{ github.base_ref == 'main' && 'prod' || 'dev' }}
+  # ── Plan dev (PR a develop) ───────────────────────────────────────────────────
+  plan-dev:
+    name: Atmos Plan - dev
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    if: |
+      (github.event_name == 'pull_request' && github.base_ref == 'develop') ||
+      (github.event_name == 'workflow_dispatch' && inputs.stack == 'vpc-lab-dev')
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Determinar stack según rama destino
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "STACK=${{ inputs.stack }}" >> $GITHUB_ENV
-          elif [ "${{ github.base_ref }}" = "main" ]; then
-            echo "STACK=vpc-lab-prod" >> $GITHUB_ENV
-          else
-            echo "STACK=vpc-lab-dev" >> $GITHUB_ENV
-          fi
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -82,11 +71,11 @@ jobs:
           chmod +x /usr/local/bin/atmos
           atmos version
 
-      - name: Atmos Plan
+      - name: Atmos Plan - vpc-lab-dev
         id: plan
         run: |
           atmos terraform plan vpc \
-            --stack ${{ env.STACK }} \
+            --stack vpc-lab-dev \
             -- -no-color 2>&1 | tee plan_output.txt
         working-directory: ${{ env.ATMOS_BASE_PATH }}
         continue-on-error: true
@@ -100,24 +89,74 @@ jobs:
             const planOutput = fs.readFileSync(
               '${{ env.ATMOS_BASE_PATH }}/plan_output.txt', 'utf8'
             ).slice(0, 60000);
-
-            const stack = process.env.STACK;
             const status = '${{ steps.plan.outcome }}' === 'success' ? '✅' : '❌';
-
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `## Atmos Plan - \`${stack}\` ${status}
+              body: `## Atmos Plan - \`vpc-lab-dev\` ${status}\n\n<details><summary>Ver Plan completo</summary>\n\n\`\`\`terraform\n${planOutput}\n\`\`\`\n</details>\n\n*Actor: @${{ github.actor }}*`
+            });
 
-            <details><summary>Ver Plan completo</summary>
+      - name: Fallar si el plan falló
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
 
-            \`\`\`terraform
-            ${planOutput}
-            \`\`\`
-            </details>
+  # ── Plan prod (PR a main) ─────────────────────────────────────────────────────
+  plan-prod:
+    name: Atmos Plan - prod
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'pull_request' && github.base_ref == 'main') ||
+      (github.event_name == 'workflow_dispatch' && inputs.stack == 'vpc-lab-prod')
 
-            *Rama destino: \`${{ github.base_ref }}\` | Actor: @${{ github.actor }}*`
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.12.0"
+          terraform_wrapper: false
+
+      - name: Install Atmos
+        run: |
+          curl -sSfL \
+            "https://github.com/cloudposse/atmos/releases/download/v${ATMOS_VERSION}/atmos_linux_amd64" \
+            -o /usr/local/bin/atmos
+          chmod +x /usr/local/bin/atmos
+          atmos version
+
+      - name: Atmos Plan - vpc-lab-prod
+        id: plan
+        run: |
+          atmos terraform plan vpc \
+            --stack vpc-lab-prod \
+            -- -no-color 2>&1 | tee plan_output.txt
+        working-directory: ${{ env.ATMOS_BASE_PATH }}
+        continue-on-error: true
+
+      - name: Comentar Plan en PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const planOutput = fs.readFileSync(
+              '${{ env.ATMOS_BASE_PATH }}/plan_output.txt', 'utf8'
+            ).slice(0, 60000);
+            const status = '${{ steps.plan.outcome }}' === 'success' ? '✅' : '❌';
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## Atmos Plan - \`vpc-lab-prod\` ${status}\n\n<details><summary>Ver Plan completo</summary>\n\n\`\`\`terraform\n${planOutput}\n\`\`\`\n</details>\n\n*Actor: @${{ github.actor }}*`
             });
 
       - name: Fallar si el plan falló
