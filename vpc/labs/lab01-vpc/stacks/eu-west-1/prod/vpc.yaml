@@ -12,6 +12,15 @@ components:
       vars:
         vpc_name: "vpc-lab-prod"
         vpc_cidr: "10.20.0.0/16" # CIDR distinto — nunca solapar con dev
+        public_subnets:
+          - "10.20.1.0/24"
+          - "10.20.2.0/24"
+        private_subnets:
+          - "10.20.11.0/24"
+          - "10.20.12.0/24"
+        isolated_subnets:
+          - "10.20.21.0/24"
+          - "10.20.22.0/24"
         enable_nat_gateway: true # prod sí necesita NAT para updates
         enable_flow_logs: true # observabilidad obligatoria en prod
         tags:
