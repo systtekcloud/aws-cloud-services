@@ -1,46 +1,66 @@
 name: VPC - Atmos
 
-# Triggers solo cuando cambian ficheros gestionados por Atmos
+# Patrón rama-por-entorno:
+#   feature/* → PR a develop → plan dev  → merge → apply dev
+#   develop   → PR a main   → plan prod → merge → apply prod
+
 on:
   pull_request:
-    branches: [main]
+    branches: [develop, main]
     paths:
-      - "vpc/labs/lab-01-vpc-desde-cero/stacks/**"
-      - "vpc/labs/lab-01-vpc-desde-cero/terraform/modules/**"
-      - "vpc/labs/lab-01-vpc-desde-cero/atmos.yaml"
+      - "vpc/labs/lab01-vpc/stacks/**"
+      - "vpc/labs/lab01-vpc/terraform/modules/**"
+      - "vpc/labs/lab01-vpc/atmos.yaml"
   push:
-    branches: [feature/vpc]
+    branches: [develop, main]
     paths:
-      - "vpc/labs/lab-01-vpc-desde-cero/stacks/**"
-      - "vpc/labs/lab-01-vpc-desde-cero/terraform/modules/**"
-      - "vpc/labs/lab-01-vpc-desde-cero/atmos.yaml"
+      - "vpc/labs/lab01-vpc/stacks/**"
+      - "vpc/labs/lab01-vpc/terraform/modules/**"
+      - "vpc/labs/lab01-vpc/atmos.yaml"
+  workflow_dispatch:
+    inputs:
+      stack:
+        description: Stack a planear
+        required: true
+        default: vpc-lab-dev
+        type: choice
+        options:
+          - vpc-lab-dev
+          - vpc-lab-prod
 
 env:
-  ATMOS_BASE_PATH: vpc/labs/lab-01-vpc-desde-cero
+  ATMOS_BASE_PATH: vpc/labs/lab01-vpc
   AWS_REGION: eu-west-1
-  ATMOS_VERSION: "1.208.0" # pinado para reproducibilidad
+  ATMOS_VERSION: "1.208.0"
 
 permissions:
-  id-token: write # OIDC
+  id-token: write
   contents: read
   pull-requests: write
 
 jobs:
-  # ── Plan en Pull Requests (dev y prod en paralelo) ───────────────────────────
+  # ── Plan ─────────────────────────────────────────────────────────────────────
+  # PR a develop → plan vpc-lab-dev
+  # PR a main    → plan vpc-lab-prod
+  # workflow_dispatch → plan el stack elegido en el input
   plan:
-    name: Atmos Plan - ${{ matrix.stack }}
+    name: Atmos Plan - ${{ github.base_ref == 'main' && 'prod' || 'dev' }}
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-
-    # Matrix: planea dev y prod en paralelo con el mismo job
-    strategy:
-      fail-fast: false # si falla dev, prod sigue ejecutándose
-      matrix:
-        stack: [vpc-lab-dev, vpc-lab-prod]
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Determinar stack según rama destino
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "STACK=${{ inputs.stack }}" >> $GITHUB_ENV
+          elif [ "${{ github.base_ref }}" = "main" ]; then
+            echo "STACK=vpc-lab-prod" >> $GITHUB_ENV
+          else
+            echo "STACK=vpc-lab-dev" >> $GITHUB_ENV
+          fi
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -52,8 +72,6 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.12.0"
-          # IMPORTANTE: false para que Atmos pueda llamar terraform directamente
-          # sin el wrapper que captura stdout y rompe la integración
           terraform_wrapper: false
 
       - name: Install Atmos
@@ -64,16 +82,17 @@ jobs:
           chmod +x /usr/local/bin/atmos
           atmos version
 
-      - name: Atmos Plan - ${{ matrix.stack }}
+      - name: Atmos Plan
         id: plan
         run: |
           atmos terraform plan vpc \
-            --stack ${{ matrix.stack }} \
+            --stack ${{ env.STACK }} \
             -- -no-color 2>&1 | tee plan_output.txt
         working-directory: ${{ env.ATMOS_BASE_PATH }}
         continue-on-error: true
 
       - name: Comentar Plan en PR
+        if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |
@@ -82,7 +101,7 @@ jobs:
               '${{ env.ATMOS_BASE_PATH }}/plan_output.txt', 'utf8'
             ).slice(0, 60000);
 
-            const stack = '${{ matrix.stack }}';
+            const stack = process.env.STACK;
             const status = '${{ steps.plan.outcome }}' === 'success' ? '✅' : '❌';
 
             github.rest.issues.createComment({
@@ -98,21 +117,20 @@ jobs:
             \`\`\`
             </details>
 
-            *Rama: \`${{ github.head_ref }}\` | Actor: @${{ github.actor }}*`
+            *Rama destino: \`${{ github.base_ref }}\` | Actor: @${{ github.actor }}*`
             });
 
       - name: Fallar si el plan falló
         if: steps.plan.outcome == 'failure'
         run: exit 1
 
-  # ── Apply en merge a main ────────────────────────────────────────────────────
-  # Solo despliega dev automáticamente.
-  # prod requiere un job separado con su propio environment para aprobación manual.
+  # ── Apply dev ─────────────────────────────────────────────────────────────────
+  # Merge a develop → apply vpc-lab-dev (sin aprobación)
   apply-dev:
     name: Atmos Apply - vpc-lab-dev
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    environment: dev # aprobación opcional en GitHub repo settings
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    environment: dev
 
     steps:
       - name: Checkout
@@ -144,12 +162,13 @@ jobs:
             -- -auto-approve
         working-directory: ${{ env.ATMOS_BASE_PATH }}
 
+  # ── Apply prod ────────────────────────────────────────────────────────────────
+  # Merge a main → apply vpc-lab-prod (requiere aprobación manual en GitHub)
   apply-prod:
     name: Atmos Apply - vpc-lab-prod
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: apply-dev # prod solo corre si dev tuvo éxito
-    environment: production # requiere aprobación manual en GitHub repo settings
+    environment: production
 
     steps:
       - name: Checkout
