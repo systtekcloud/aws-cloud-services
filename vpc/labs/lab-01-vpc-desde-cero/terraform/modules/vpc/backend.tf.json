@@ -1,0 +1,14 @@
+{
+  "terraform": {
+    "backend": {
+      "s3": {
+        "bucket": "tf-state-vpc-lab-899237616120",
+        "key": "terraform.tfstate",
+        "region": "eu-west-1",
+        "workspace_key_prefix": "vpc",
+        "encrypt": true,
+        "use_lockfile": true
+      }
+    }
+  }
+}

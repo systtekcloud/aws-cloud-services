@@ -231,7 +231,7 @@ echo "RT_PRIVATE=$RT_PRIVATE"
 |-------|-------|
 | Name | `sg-app` |
 | VPC | `vpc-lab-dev` |
-| Inbound | TCP 8080, Source: `sg-bastion` |
+| Inbound | TCP 22, Source: `sg-bastion` |
 | Outbound | All traffic (default) |
 
 <details>
@@ -243,7 +243,7 @@ MY_IP=$(curl -s https://checkip.amazonaws.com)/32
 
 # SG-Bastion
 SG_BASTION=$(aws ec2 create-security-group \
-  --group-name sg-bastion \
+  --group-name sgbastion \
   --description "SSH desde IP del admin" \
   --vpc-id $VPC_ID \
   --tag-specifications "ResourceType=security-group,Tags=[{Key=Name,Value=sg-bastion},{Key=Project,Value=$PROJECT}]" \
@@ -256,7 +256,7 @@ aws ec2 authorize-security-group-ingress \
 
 # SG-App
 SG_APP=$(aws ec2 create-security-group \
-  --group-name sg-app \
+  --group-name sgapp \
   --description "App tier - solo desde bastion" \
   --vpc-id $VPC_ID \
   --tag-specifications "ResourceType=security-group,Tags=[{Key=Name,Value=sg-app},{Key=Project,Value=$PROJECT}]" \
@@ -297,7 +297,7 @@ echo "SG_APP=$SG_APP"
 # AMI Amazon Linux 2023 más reciente en eu-west-1
 AMI_ID=$(aws ec2 describe-images \
   --owners amazon \
-  --filters "Name=name,Values=al2023-ami-*-x86_64" \
+  --filters "Name=name,Values=al2023-ami-2023*-x86_64" \
              "Name=state,Values=available" \
   --query 'sort_by(Images,&CreationDate)[-1].ImageId' \
   --output text)

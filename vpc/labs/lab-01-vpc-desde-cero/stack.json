@@ -1,0 +1,851 @@
+{
+  "atmos_cli_config": {
+    "base_path": ".",
+    "components": {
+      "terraform": {
+        "base_path": "terraform/modules",
+        "apply_auto_approve": false,
+        "append_user_agent": "Atmos/1.208.0 (Cloud Posse; +https://atmos.tools)",
+        "deploy_run_init": true,
+        "init_run_reconfigure": true,
+        "auto_generate_backend_file": true,
+        "auto_generate_files": false,
+        "command": "",
+        "shell": {
+          "prompt": ""
+        },
+        "init": {
+          "pass_vars": false
+        },
+        "plan": {
+          "skip_planfile": false
+        },
+        "plugin_cache": true
+      },
+      "helmfile": {
+        "base_path": "",
+        "use_eks": true,
+        "kubeconfig_path": "",
+        "helm_aws_profile_pattern": "",
+        "cluster_name_pattern": "",
+        "cluster_name_template": "",
+        "cluster_name": "",
+        "command": "",
+        "auto_generate_files": false
+      },
+      "packer": {
+        "base_path": "",
+        "command": "",
+        "auto_generate_files": false
+      },
+      "ansible": {
+        "base_path": "",
+        "command": "",
+        "auto_generate_files": false
+      },
+      "list": {
+        "format": "",
+        "columns": null
+      },
+      "Plugins": null
+    },
+    "stacks": {
+      "base_path": "stacks",
+      "included_paths": [
+        "eu-west-1/**/*"
+      ],
+      "excluded_paths": [
+        "**/_defaults.yaml",
+        "**/catalog/**"
+      ],
+      "name_pattern": "{tenant}-{environment}",
+      "name_template": "",
+      "list": {
+        "format": "",
+        "columns": null
+      },
+      "inherit": {}
+    },
+    "workflows": {
+      "base_path": "",
+      "list": {
+        "format": "",
+        "columns": null
+      }
+    }
+  },
+  "atmos_component": "vpc",
+  "atmos_manifest": "eu-west-1/dev/vpc",
+  "atmos_stack": "vpc-lab-dev",
+  "atmos_stack_file": "eu-west-1/dev/vpc",
+  "auth": {},
+  "backend": {
+    "workspace_key_prefix": "vpc"
+  },
+  "backend_type": "s3",
+  "cli_args": [
+    "describe",
+    "component"
+  ],
+  "command": "terraform",
+  "component": "vpc",
+  "component_info": {
+    "component_path": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc",
+    "component_type": "terraform",
+    "terraform_config": {
+      "path": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc",
+      "variables": {
+        "azs": {
+          "name": "azs",
+          "type": "list(string)",
+          "description": "Lista de Availability Zones a usar",
+          "default": [
+            "eu-west-1a",
+            "eu-west-1b"
+          ],
+          "required": false,
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/variables.tf",
+            "line": 12
+          }
+        },
+        "enable_flow_logs": {
+          "name": "enable_flow_logs",
+          "type": "bool",
+          "description": "Activar VPC Flow Logs a CloudWatch",
+          "default": false,
+          "required": false,
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/variables.tf",
+            "line": 48
+          }
+        },
+        "enable_nat_gateway": {
+          "name": "enable_nat_gateway",
+          "type": "bool",
+          "description": "Crear NAT Gateway (genera coste). Desactivar para entornos de bajo coste.",
+          "default": false,
+          "required": false,
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/variables.tf",
+            "line": 36
+          }
+        },
+        "enable_s3_endpoint": {
+          "name": "enable_s3_endpoint",
+          "type": "bool",
+          "description": "Crear Gateway Endpoint para S3 (gratis)",
+          "default": true,
+          "required": false,
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/variables.tf",
+            "line": 42
+          }
+        },
+        "isolated_subnets": {
+          "name": "isolated_subnets",
+          "type": "list(string)",
+          "description": "CIDRs de subnets aisladas (sin ruta a internet)",
+          "default": [
+            "10.10.21.0/24",
+            "10.10.22.0/24"
+          ],
+          "required": false,
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/variables.tf",
+            "line": 30
+          }
+        },
+        "private_subnets": {
+          "name": "private_subnets",
+          "type": "list(string)",
+          "description": "CIDRs de subnets privadas",
+          "default": [
+            "10.10.11.0/24",
+            "10.10.12.0/24"
+          ],
+          "required": false,
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/variables.tf",
+            "line": 24
+          }
+        },
+        "public_subnets": {
+          "name": "public_subnets",
+          "type": "list(string)",
+          "description": "CIDRs de subnets públicas (una por AZ)",
+          "default": [
+            "10.10.1.0/24",
+            "10.10.2.0/24"
+          ],
+          "required": false,
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/variables.tf",
+            "line": 18
+          }
+        },
+        "tags": {
+          "name": "tags",
+          "type": "map(string)",
+          "description": "Tags comunes para todos los recursos",
+          "default": {},
+          "required": false,
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/variables.tf",
+            "line": 54
+          }
+        },
+        "vpc_cidr": {
+          "name": "vpc_cidr",
+          "type": "string",
+          "description": "CIDR block de la VPC",
+          "default": "10.10.0.0/16",
+          "required": false,
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/variables.tf",
+            "line": 6
+          }
+        },
+        "vpc_name": {
+          "name": "vpc_name",
+          "type": "string",
+          "description": "Nombre de la VPC (se usa en tags)",
+          "default": null,
+          "required": true,
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/variables.tf",
+            "line": 1
+          }
+        }
+      },
+      "outputs": {
+        "isolated_route_table_id": {
+          "name": "isolated_route_table_id",
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/output.tf",
+            "line": 8
+          }
+        },
+        "isolated_subnet_ids": {
+          "name": "isolated_subnet_ids",
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/output.tf",
+            "line": 5
+          }
+        },
+        "nat_gateway_id": {
+          "name": "nat_gateway_id",
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/output.tf",
+            "line": 9
+          }
+        },
+        "private_route_table_id": {
+          "name": "private_route_table_id",
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/output.tf",
+            "line": 7
+          }
+        },
+        "private_subnet_ids": {
+          "name": "private_subnet_ids",
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/output.tf",
+            "line": 4
+          }
+        },
+        "public_route_table_id": {
+          "name": "public_route_table_id",
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/output.tf",
+            "line": 6
+          }
+        },
+        "public_subnet_ids": {
+          "name": "public_subnet_ids",
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/output.tf",
+            "line": 3
+          }
+        },
+        "s3_endpoint_id": {
+          "name": "s3_endpoint_id",
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/output.tf",
+            "line": 10
+          }
+        },
+        "vpc_cidr": {
+          "name": "vpc_cidr",
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/output.tf",
+            "line": 2
+          }
+        },
+        "vpc_id": {
+          "name": "vpc_id",
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/output.tf",
+            "line": 1
+          }
+        }
+      },
+      "required_providers": {
+        "aws": {}
+      },
+      "managed_resources": {
+        "aws_cloudwatch_log_group.flow_logs": {
+          "mode": "managed",
+          "type": "aws_cloudwatch_log_group",
+          "name": "flow_logs",
+          "provider": {
+            "name": "aws"
+          },
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/main.tf",
+            "line": 142
+          }
+        },
+        "aws_eip.nat": {
+          "mode": "managed",
+          "type": "aws_eip",
+          "name": "nat",
+          "provider": {
+            "name": "aws"
+          },
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/main.tf",
+            "line": 64
+          }
+        },
+        "aws_flow_log.this": {
+          "mode": "managed",
+          "type": "aws_flow_log",
+          "name": "this",
+          "provider": {
+            "name": "aws"
+          },
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/main.tf",
+            "line": 182
+          }
+        },
+        "aws_iam_role.flow_logs": {
+          "mode": "managed",
+          "type": "aws_iam_role",
+          "name": "flow_logs",
+          "provider": {
+            "name": "aws"
+          },
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/main.tf",
+            "line": 149
+          }
+        },
+        "aws_iam_role_policy.flow_logs": {
+          "mode": "managed",
+          "type": "aws_iam_role_policy",
+          "name": "flow_logs",
+          "provider": {
+            "name": "aws"
+          },
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/main.tf",
+            "line": 164
+          }
+        },
+        "aws_internet_gateway.this": {
+          "mode": "managed",
+          "type": "aws_internet_gateway",
+          "name": "this",
+          "provider": {
+            "name": "aws"
+          },
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/main.tf",
+            "line": 58
+          }
+        },
+        "aws_nat_gateway.this": {
+          "mode": "managed",
+          "type": "aws_nat_gateway",
+          "name": "this",
+          "provider": {
+            "name": "aws"
+          },
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/main.tf",
+            "line": 70
+          }
+        },
+        "aws_network_acl.isolated": {
+          "mode": "managed",
+          "type": "aws_network_acl",
+          "name": "isolated",
+          "provider": {
+            "name": "aws"
+          },
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/main.tf",
+            "line": 194
+          }
+        },
+        "aws_route.private_nat": {
+          "mode": "managed",
+          "type": "aws_route",
+          "name": "private_nat",
+          "provider": {
+            "name": "aws"
+          },
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/main.tf",
+            "line": 101
+          }
+        },
+        "aws_route_table.isolated": {
+          "mode": "managed",
+          "type": "aws_route_table",
+          "name": "isolated",
+          "provider": {
+            "name": "aws"
+          },
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/main.tf",
+            "line": 114
+          }
+        },
+        "aws_route_table.private": {
+          "mode": "managed",
+          "type": "aws_route_table",
+          "name": "private",
+          "provider": {
+            "name": "aws"
+          },
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/main.tf",
+            "line": 96
+          }
+        },
+        "aws_route_table.public": {
+          "mode": "managed",
+          "type": "aws_route_table",
+          "name": "public",
+          "provider": {
+            "name": "aws"
+          },
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/main.tf",
+            "line": 79
+          }
+        },
+        "aws_route_table_association.isolated": {
+          "mode": "managed",
+          "type": "aws_route_table_association",
+          "name": "isolated",
+          "provider": {
+            "name": "aws"
+          },
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/main.tf",
+            "line": 120
+          }
+        },
+        "aws_route_table_association.private": {
+          "mode": "managed",
+          "type": "aws_route_table_association",
+          "name": "private",
+          "provider": {
+            "name": "aws"
+          },
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/main.tf",
+            "line": 108
+          }
+        },
+        "aws_route_table_association.public": {
+          "mode": "managed",
+          "type": "aws_route_table_association",
+          "name": "public",
+          "provider": {
+            "name": "aws"
+          },
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/main.tf",
+            "line": 90
+          }
+        },
+        "aws_subnet.isolated": {
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "isolated",
+          "provider": {
+            "name": "aws"
+          },
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/main.tf",
+            "line": 45
+          }
+        },
+        "aws_subnet.private": {
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "private",
+          "provider": {
+            "name": "aws"
+          },
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/main.tf",
+            "line": 32
+          }
+        },
+        "aws_subnet.public": {
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "public",
+          "provider": {
+            "name": "aws"
+          },
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/main.tf",
+            "line": 18
+          }
+        },
+        "aws_vpc.this": {
+          "mode": "managed",
+          "type": "aws_vpc",
+          "name": "this",
+          "provider": {
+            "name": "aws"
+          },
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/main.tf",
+            "line": 9
+          }
+        },
+        "aws_vpc_endpoint.s3": {
+          "mode": "managed",
+          "type": "aws_vpc_endpoint",
+          "name": "s3",
+          "provider": {
+            "name": "aws"
+          },
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/main.tf",
+            "line": 127
+          }
+        }
+      },
+      "data_resources": {
+        "data.aws_region.current": {
+          "mode": "data",
+          "type": "aws_region",
+          "name": "current",
+          "provider": {
+            "name": "aws"
+          },
+          "pos": {
+            "filename": "/home/sergi/DevOpsProjects/aws/aws-cloud-services/vpc/labs/lab-01-vpc-desde-cero/terraform/modules/vpc/main.tf",
+            "line": 139
+          }
+        }
+      },
+      "module_calls": {}
+    }
+  },
+  "component_type": "terraform",
+  "deps": [
+    "catalog/vpc",
+    "eu-west-1/_defaults",
+    "eu-west-1/dev/vpc"
+  ],
+  "deps_all": [
+    "catalog/vpc",
+    "eu-west-1/_defaults",
+    "eu-west-1/dev/vpc"
+  ],
+  "env": {},
+  "generate": {},
+  "hooks": {},
+  "imports": [
+    "catalog/vpc",
+    "eu-west-1/_defaults"
+  ],
+  "inheritance": [],
+  "metadata": {
+    "component": "vpc"
+  },
+  "overrides": {},
+  "providers": {},
+  "provision": {},
+  "remote_state_backend": {
+    "workspace_key_prefix": "vpc"
+  },
+  "remote_state_backend_type": "s3",
+  "settings": {
+    "spacelift": {
+      "workspace_enabled": false
+    }
+  },
+  "source": {},
+  "sources": {
+    "backend": {
+      "workspace_key_prefix": {
+        "final_value": "vpc",
+        "name": "workspace_key_prefix",
+        "stack_dependencies": []
+      }
+    },
+    "env": {},
+    "settings": {
+      "spacelift": {
+        "final_value": {
+          "workspace_enabled": false
+        },
+        "name": "spacelift",
+        "stack_dependencies": [
+          {
+            "dependency_type": "import",
+            "stack_file": "catalog/vpc",
+            "stack_file_section": "components.terraform.settings",
+            "variable_value": {
+              "workspace_enabled": false
+            }
+          }
+        ]
+      }
+    },
+    "vars": {
+      "azs": {
+        "final_value": [
+          "eu-west-1a",
+          "eu-west-1b"
+        ],
+        "name": "azs",
+        "stack_dependencies": [
+          {
+            "dependency_type": "import",
+            "stack_file": "catalog/vpc",
+            "stack_file_section": "components.terraform.vars",
+            "variable_value": [
+              "eu-west-1a",
+              "eu-west-1b"
+            ]
+          }
+        ]
+      },
+      "enable_flow_logs": {
+        "final_value": false,
+        "name": "enable_flow_logs",
+        "stack_dependencies": [
+          {
+            "dependency_type": "inline",
+            "stack_file": "eu-west-1/dev/vpc",
+            "stack_file_section": "components.terraform.vars",
+            "variable_value": false
+          },
+          {
+            "dependency_type": "import",
+            "stack_file": "catalog/vpc",
+            "stack_file_section": "components.terraform.vars",
+            "variable_value": false
+          }
+        ]
+      },
+      "enable_nat_gateway": {
+        "final_value": false,
+        "name": "enable_nat_gateway",
+        "stack_dependencies": [
+          {
+            "dependency_type": "inline",
+            "stack_file": "eu-west-1/dev/vpc",
+            "stack_file_section": "components.terraform.vars",
+            "variable_value": false
+          },
+          {
+            "dependency_type": "import",
+            "stack_file": "catalog/vpc",
+            "stack_file_section": "components.terraform.vars",
+            "variable_value": false
+          }
+        ]
+      },
+      "enable_s3_endpoint": {
+        "final_value": true,
+        "name": "enable_s3_endpoint",
+        "stack_dependencies": [
+          {
+            "dependency_type": "import",
+            "stack_file": "catalog/vpc",
+            "stack_file_section": "components.terraform.vars",
+            "variable_value": true
+          }
+        ]
+      },
+      "environment": {
+        "final_value": "dev",
+        "name": "environment",
+        "stack_dependencies": [
+          {
+            "dependency_type": "inline",
+            "stack_file": "eu-west-1/dev/vpc",
+            "stack_file_section": "vars",
+            "variable_value": "dev"
+          }
+        ]
+      },
+      "isolated_subnets": {
+        "final_value": [
+          "10.10.21.0/24",
+          "10.10.22.0/24"
+        ],
+        "name": "isolated_subnets",
+        "stack_dependencies": [
+          {
+            "dependency_type": "import",
+            "stack_file": "catalog/vpc",
+            "stack_file_section": "components.terraform.vars",
+            "variable_value": [
+              "10.10.21.0/24",
+              "10.10.22.0/24"
+            ]
+          }
+        ]
+      },
+      "private_subnets": {
+        "final_value": [
+          "10.10.11.0/24",
+          "10.10.12.0/24"
+        ],
+        "name": "private_subnets",
+        "stack_dependencies": [
+          {
+            "dependency_type": "import",
+            "stack_file": "catalog/vpc",
+            "stack_file_section": "components.terraform.vars",
+            "variable_value": [
+              "10.10.11.0/24",
+              "10.10.12.0/24"
+            ]
+          }
+        ]
+      },
+      "public_subnets": {
+        "final_value": [
+          "10.10.1.0/24",
+          "10.10.2.0/24"
+        ],
+        "name": "public_subnets",
+        "stack_dependencies": [
+          {
+            "dependency_type": "import",
+            "stack_file": "catalog/vpc",
+            "stack_file_section": "components.terraform.vars",
+            "variable_value": [
+              "10.10.1.0/24",
+              "10.10.2.0/24"
+            ]
+          }
+        ]
+      },
+      "region": {
+        "final_value": "eu-west-1",
+        "name": "region",
+        "stack_dependencies": [
+          {
+            "dependency_type": "import",
+            "stack_file": "eu-west-1/_defaults",
+            "stack_file_section": "vars",
+            "variable_value": "eu-west-1"
+          }
+        ]
+      },
+      "tags": {
+        "final_value": {
+          "CostCenter": "engineering",
+          "Environment": "dev"
+        },
+        "name": "tags",
+        "stack_dependencies": [
+          {
+            "dependency_type": "inline",
+            "stack_file": "eu-west-1/dev/vpc",
+            "stack_file_section": "components.terraform.vars",
+            "variable_value": {
+              "CostCenter": "engineering",
+              "Environment": "dev"
+            }
+          }
+        ]
+      },
+      "tenant": {
+        "final_value": "vpc-lab",
+        "name": "tenant",
+        "stack_dependencies": [
+          {
+            "dependency_type": "import",
+            "stack_file": "eu-west-1/_defaults",
+            "stack_file_section": "vars",
+            "variable_value": "vpc-lab"
+          }
+        ]
+      },
+      "vpc_cidr": {
+        "final_value": "10.10.0.0/16",
+        "name": "vpc_cidr",
+        "stack_dependencies": [
+          {
+            "dependency_type": "inline",
+            "stack_file": "eu-west-1/dev/vpc",
+            "stack_file_section": "components.terraform.vars",
+            "variable_value": "10.10.0.0/16"
+          }
+        ]
+      },
+      "vpc_name": {
+        "final_value": "vpc-lab-dev",
+        "name": "vpc_name",
+        "stack_dependencies": [
+          {
+            "dependency_type": "inline",
+            "stack_file": "eu-west-1/dev/vpc",
+            "stack_file_section": "components.terraform.vars",
+            "variable_value": "vpc-lab-dev"
+          }
+        ]
+      }
+    }
+  },
+  "stack": "vpc-lab-dev",
+  "tf_cli_vars": {},
+  "vars": {
+    "azs": [
+      "eu-west-1a",
+      "eu-west-1b"
+    ],
+    "enable_flow_logs": false,
+    "enable_nat_gateway": false,
+    "enable_s3_endpoint": true,
+    "environment": "dev",
+    "isolated_subnets": [
+      "10.10.21.0/24",
+      "10.10.22.0/24"
+    ],
+    "private_subnets": [
+      "10.10.11.0/24",
+      "10.10.12.0/24"
+    ],
+    "public_subnets": [
+      "10.10.1.0/24",
+      "10.10.2.0/24"
+    ],
+    "region": "eu-west-1",
+    "tags": {
+      "CostCenter": "engineering",
+      "Environment": "dev"
+    },
+    "tenant": "vpc-lab",
+    "vpc_cidr": "10.10.0.0/16",
+    "vpc_name": "vpc-lab-dev"
+  },
+  "workspace": "vpc-lab-dev"
+}

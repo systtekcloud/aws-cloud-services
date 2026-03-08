@@ -135,6 +135,9 @@ ssh -i ~/.ssh/vpc-lab-key.pem \
 
 Desde la EC2 privada:
 ```bash
+# Instalar dig (no incluido por defecto en Amazon Linux 2023)
+sudo dnf install -y bind-utils
+
 # Debe funcionar ahora
 curl -s https://checkip.amazonaws.com
 # Resultado esperado: la Elastic IP del NAT GW (no la IP privada de la EC2)

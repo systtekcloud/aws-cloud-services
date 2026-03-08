@@ -1,0 +1,182 @@
+name: VPC - Atmos
+
+# Triggers solo cuando cambian ficheros gestionados por Atmos
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "vpc/labs/lab-01-vpc-desde-cero/stacks/**"
+      - "vpc/labs/lab-01-vpc-desde-cero/terraform/modules/**"
+      - "vpc/labs/lab-01-vpc-desde-cero/atmos.yaml"
+  push:
+    branches: [feature/vpc]
+    paths:
+      - "vpc/labs/lab-01-vpc-desde-cero/stacks/**"
+      - "vpc/labs/lab-01-vpc-desde-cero/terraform/modules/**"
+      - "vpc/labs/lab-01-vpc-desde-cero/atmos.yaml"
+
+env:
+  ATMOS_BASE_PATH: vpc/labs/lab-01-vpc-desde-cero
+  AWS_REGION: eu-west-1
+  ATMOS_VERSION: "1.208.0" # pinado para reproducibilidad
+
+permissions:
+  id-token: write # OIDC
+  contents: read
+  pull-requests: write
+
+jobs:
+  # ── Plan en Pull Requests (dev y prod en paralelo) ───────────────────────────
+  plan:
+    name: Atmos Plan - ${{ matrix.stack }}
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    # Matrix: planea dev y prod en paralelo con el mismo job
+    strategy:
+      fail-fast: false # si falla dev, prod sigue ejecutándose
+      matrix:
+        stack: [vpc-lab-dev, vpc-lab-prod]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.12.0"
+          # IMPORTANTE: false para que Atmos pueda llamar terraform directamente
+          # sin el wrapper que captura stdout y rompe la integración
+          terraform_wrapper: false
+
+      - name: Install Atmos
+        run: |
+          curl -sSfL \
+            "https://github.com/cloudposse/atmos/releases/download/v${ATMOS_VERSION}/atmos_linux_amd64" \
+            -o /usr/local/bin/atmos
+          chmod +x /usr/local/bin/atmos
+          atmos version
+
+      - name: Atmos Plan - ${{ matrix.stack }}
+        id: plan
+        run: |
+          atmos terraform plan vpc \
+            --stack ${{ matrix.stack }} \
+            -- -no-color 2>&1 | tee plan_output.txt
+        working-directory: ${{ env.ATMOS_BASE_PATH }}
+        continue-on-error: true
+
+      - name: Comentar Plan en PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const planOutput = fs.readFileSync(
+              '${{ env.ATMOS_BASE_PATH }}/plan_output.txt', 'utf8'
+            ).slice(0, 60000);
+
+            const stack = '${{ matrix.stack }}';
+            const status = '${{ steps.plan.outcome }}' === 'success' ? '✅' : '❌';
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## Atmos Plan - \`${stack}\` ${status}
+
+            <details><summary>Ver Plan completo</summary>
+
+            \`\`\`terraform
+            ${planOutput}
+            \`\`\`
+            </details>
+
+            *Rama: \`${{ github.head_ref }}\` | Actor: @${{ github.actor }}*`
+            });
+
+      - name: Fallar si el plan falló
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
+
+  # ── Apply en merge a main ────────────────────────────────────────────────────
+  # Solo despliega dev automáticamente.
+  # prod requiere un job separado con su propio environment para aprobación manual.
+  apply-dev:
+    name: Atmos Apply - vpc-lab-dev
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: dev # aprobación opcional en GitHub repo settings
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.12.0"
+          terraform_wrapper: false
+
+      - name: Install Atmos
+        run: |
+          curl -sSfL \
+            "https://github.com/cloudposse/atmos/releases/download/v${ATMOS_VERSION}/atmos_linux_amd64" \
+            -o /usr/local/bin/atmos
+          chmod +x /usr/local/bin/atmos
+
+      - name: Atmos Apply - vpc-lab-dev
+        run: |
+          atmos terraform apply vpc \
+            --stack vpc-lab-dev \
+            -- -auto-approve
+        working-directory: ${{ env.ATMOS_BASE_PATH }}
+
+  apply-prod:
+    name: Atmos Apply - vpc-lab-prod
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: apply-dev # prod solo corre si dev tuvo éxito
+    environment: production # requiere aprobación manual en GitHub repo settings
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.12.0"
+          terraform_wrapper: false
+
+      - name: Install Atmos
+        run: |
+          curl -sSfL \
+            "https://github.com/cloudposse/atmos/releases/download/v${ATMOS_VERSION}/atmos_linux_amd64" \
+            -o /usr/local/bin/atmos
+          chmod +x /usr/local/bin/atmos
+
+      - name: Atmos Apply - vpc-lab-prod
+        run: |
+          atmos terraform apply vpc \
+            --stack vpc-lab-prod \
+            -- -auto-approve
+        working-directory: ${{ env.ATMOS_BASE_PATH }}

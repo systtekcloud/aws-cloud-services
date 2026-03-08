@@ -1,0 +1,20 @@
+# stacks/eu-west-1/dev/vpc.yaml
+import:
+  - eu-west-1/_defaults # hereda tenant + region de la región
+  - catalog/vpc         # hereda defaults del componente
+
+vars:
+  environment: dev
+
+components:
+  terraform:
+    vpc:
+      vars:
+        vpc_name: "vpc-lab-dev"
+        vpc_cidr: "10.10.0.0/16"
+        enable_nat_gateway: false # dev no necesita NAT — ahorra ~30€/mes
+        enable_flow_logs: false
+        tags:
+          Environment: dev
+          CostCenter: engineering
+      # backend: gestionado globalmente en atmos.yaml — key generada: vpc/vpc-lab-dev.tfstate

@@ -1,0 +1,35 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowMainBranchApply",
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam:::oidc-provider/token.actions.githubusercontent.com"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+          "token.actions.githubusercontent.com:sub": "repo:TU_GITHUB_USER/TU_REPO:ref:refs/heads/main"
+        }
+      }
+    },
+    {
+      "Sid": "AllowPullRequestPlan",
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam:::oidc-provider/token.actions.githubusercontent.com"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+        },
+        "StringLike": {
+          "token.actions.githubusercontent.com:sub": "repo:TU_GITHUB_USER/TU_REPO:pull_request"
+        }
+      }
+    }
+  ]
+}

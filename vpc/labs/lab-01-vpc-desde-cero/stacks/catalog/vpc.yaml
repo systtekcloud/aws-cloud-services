@@ -1,0 +1,27 @@
+# stacks/catalog/vpc.yaml
+components:
+  terraform:
+    vpc:
+      metadata:
+        component: vpc # apunta a terraform/modules/vpc/
+      backend_type: s3
+      vars:
+        # Valores comunes a todos los entornos
+        azs:
+          - eu-west-1a
+          - eu-west-1b
+        public_subnets:
+          - "10.10.1.0/24"
+          - "10.10.2.0/24"
+        private_subnets:
+          - "10.10.11.0/24"
+          - "10.10.12.0/24"
+        isolated_subnets:
+          - "10.10.21.0/24"
+          - "10.10.22.0/24"
+        enable_s3_endpoint: true # gratis, siempre activo
+        enable_nat_gateway: false # por defecto off — cada env decide
+        enable_flow_logs: false # por defecto off — solo en prod
+      settings:
+        spacelift:
+          workspace_enabled: false

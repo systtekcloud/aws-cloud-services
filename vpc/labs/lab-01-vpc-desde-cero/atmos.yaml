@@ -1,0 +1,28 @@
+# atmos.yaml (en la raíz del proyecto)
+base_path: "."
+
+components:
+  terraform:
+    base_path: "terraform/modules" # donde están los módulos
+    apply_auto_approve: false
+    deploy_run_init: true
+    init_run_reconfigure: true
+    auto_generate_backend_file: false  # backend.tf.json gestionado manualmente en el módulo
+
+stacks:
+  base_path: "stacks"
+  included_paths:
+    - "eu-west-1/**/*"
+  excluded_paths:
+    - "**/_defaults.yaml"
+    - "**/catalog/**"
+  name_pattern: "{tenant}-{environment}"
+
+templates:
+  settings:
+    enabled: true   # habilita Go templates en los YAML de stacks
+    # Permite usar {{ env "VAR" }} para leer variables de entorno
+
+logs:
+  file: "/dev/stderr"
+  level: Info
