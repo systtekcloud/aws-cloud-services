@@ -1,3 +1,4 @@
+# ──── Locals ────────────────────────────────────────────────────────────────
 locals {
   common_tags = merge(var.tags, {
     ManagedBy = "terraform"
