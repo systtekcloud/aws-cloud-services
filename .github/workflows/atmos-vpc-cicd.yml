@@ -65,10 +65,7 @@ jobs:
 
       - name: Install Atmos
         run: |
-          curl -sSfL \
-            "https://github.com/cloudposse/atmos/releases/download/v${ATMOS_VERSION}/atmos_linux_amd64" \
-            -o /usr/local/bin/atmos
-          chmod +x /usr/local/bin/atmos
+          curl -fsSL https://atmos.tools/install.sh | bash
           atmos version
 
       - name: Atmos Plan - vpc-lab-dev
