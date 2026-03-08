@@ -1,3 +1,13 @@
 .claude
 .claudeignore
 .mcp.json
+
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.backup
+
+# Atmos — ficheros generados en tiempo de ejecución
+*.terraform.tfvars.json
+*.planfile

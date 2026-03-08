@@ -83,7 +83,7 @@ EOF
 
 aws iam create-role \
   --role-name vpc-flow-logs-role \
-  --assume-role-policy-document file:///tmp/flow-logs-trust.json
+  --assume-role-policy-document file://policy/flow-logs-trust.json
 
 # Inline policy
 cat > /tmp/flow-logs-policy.json << 'EOF'
@@ -103,7 +103,7 @@ EOF
 aws iam put-role-policy \
   --role-name vpc-flow-logs-role \
   --policy-name flow-logs-cw \
-  --policy-document file:///tmp/flow-logs-policy.json
+  --policy-document file://policy/flow-logs-policy.json
 
 FLOW_LOGS_ROLE_ARN=$(aws iam get-role \
   --role-name vpc-flow-logs-role \

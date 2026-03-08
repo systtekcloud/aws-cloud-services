@@ -1,0 +1,4 @@
+# stacks/eu-west-1/_defaults.yaml
+vars:
+  region: eu-west-1
+  tenant: vpc-lab

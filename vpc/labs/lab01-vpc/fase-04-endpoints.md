@@ -39,6 +39,21 @@ graph LR
 
 ---
 
+## Prerequisito — IAM Role para la EC2 aislada
+
+El IAM role `ec2-ssm-s3-role` y el instance profile `ec2-ssm-s3-profile` se crearon en **Fase 3, Paso 5** y se asociaron a la instancia DB en el momento de su lanzamiento. La instancia ya tiene credenciales disponibles desde el boot.
+
+Verifica que el profile está correctamente asociado antes de continuar:
+
+```bash
+aws ec2 describe-iam-instance-profile-associations   --filters "Name=instance-id,Values=$DB_ID"   --query 'IamInstanceProfileAssociations[0].IamInstanceProfile.Arn'   --output text
+# Esperado: arn:aws:iam::ACCOUNT_ID:instance-profile/ec2-ssm-s3-profile
+```
+
+> ⚠️ Si no ves el profile, vuelve a Fase 3 Paso 5 y créalo antes de continuar. Sin él, SSM no puede registrar la instancia y `aws s3 ls` fallará con error de credenciales.
+
+---
+
 ## Parte A — Gateway Endpoint para S3
 
 ### ¿Por qué Gateway Endpoint?
@@ -90,27 +105,7 @@ echo "S3_PREFIX=$S3_PREFIX"
 
 ✅ **Validación:** En rt-isolated aparece una nueva ruta: `pl-xxxxxxxx → vpce-xxxxxxxx`.
 
-### Paso A2 — Validar acceso a S3 desde subnet aislada
-
-```bash
-# Conéctate a la EC2 aislada (via doble salto)
-ssh -i ~/.ssh/vpc-lab-key.pem \
-    -J ec2-user@$BASTION_IP,ec2-user@$APP_PRIV_IP \
-    ec2-user@$DB_PRIV_IP
-
-# Desde la EC2 aislada (sin internet), esto debe funcionar ahora:
-aws s3 ls --region eu-west-1
-# Debe listar tus buckets S3 (o devolver lista vacía sin error)
-
-# Crear un archivo de prueba y subirlo
-echo "test-desde-isolated" > /tmp/test.txt
-aws s3 cp /tmp/test.txt s3://NOMBRE_TU_BUCKET/test.txt --region eu-west-1
-# Debe funcionar sin NAT, sin IGW
-```
-
-✅ **Señales de éxito:**
-- `aws s3 ls` devuelve respuesta (no timeout)
-- El tráfico hacia S3 NO pasa por internet (puedes verificarlo en Flow Logs en Fase 5: verás `pl-` como destino, no `0.0.0.0/0`)
+> ℹ️ La validación de acceso a S3 desde la instancia aislada se hace en la **sección de Validación combinada** al final de esta fase, una vez que los Interface Endpoints de SSM estén operativos. SSM es el mecanismo de acceso a la instancia aislada — sin él no podemos entrar a la EC2 para ejecutar el test.
 
 ---
 
@@ -142,7 +137,7 @@ Los Interface Endpoints son ENIs en tus subnets. Necesitan un SG que permita HTT
 
 ```bash
 SG_ENDPOINTS=$(aws ec2 create-security-group \
-  --group-name sg-endpoints \
+  --group-name sgendpoints \
   --description "HTTPS para Interface Endpoints" \
   --vpc-id $VPC_ID \
   --tag-specifications "ResourceType=security-group,Tags=[{Key=Name,Value=sg-endpoints},{Key=Project,Value=$PROJECT}]" \
@@ -157,21 +152,9 @@ echo "SG_ENDPOINTS=$SG_ENDPOINTS"
 ```
 </details>
 
-### Paso B2 — Actualizar NACL aislada para permitir HTTPS de retorno
+> 💡 **Por qué no necesitamos tocar la NACL para los Interface Endpoints:** Las NACLs actúan en el **borde de la subnet**, filtrando tráfico que entra o sale de ella. El tráfico entre la EC2 y la ENI del Interface Endpoint (ambos en `isolated-a`) es **intra-subnet** — nunca cruza el borde, por lo que la NACL no lo inspecciona. No hay ninguna regla adicional que añadir.
 
-Los Interface Endpoints responden por HTTPS (443). La NACL outbound de isolated necesita permitir los puertos efímeros hacia los endpoints. Como los endpoints están en la misma VPC, el tráfico es local:
-
-**Consola:** VPC > Network ACLs > `nacl-isolated` > **Edit outbound rules**
-
-Añadir (antes del DENY final):
-| Rule # | Type | Protocol | Port | Destination | Allow/Deny |
-|--------|------|----------|------|-------------|------------|
-| 90 | Custom TCP | TCP | 1024-65535 | 10.10.21.0/24 | **ALLOW** |
-| 91 | Custom TCP | TCP | 443 | 10.10.21.0/24 | **ALLOW** |
-
-> **Nota:** Los endpoints SSM se crearán en `isolated-a` (10.10.21.0/24). Las respuestas HTTPS van a puertos efímeros del cliente.
-
-### Paso B3 — Crear los 3 Interface Endpoints
+### Paso B2 — Crear los 3 Interface Endpoints
 
 💡 **COSTE:** Cada Interface Endpoint cuesta ~0.01€/h. Con 3 endpoints = ~0.03€/h ≈ 0.72€/día. Borrar tras validar.
 
@@ -212,44 +195,22 @@ done
 ```
 </details>
 
-### Paso B4 — Adjuntar IAM Role a la EC2 aislada
+### Paso B3 — Verificar IAM Role en la instancia
 
-SSM requiere que la EC2 tenga el role `AmazonSSMManagedInstanceCore`.
-
-**Consola:** EC2 > Instances > `db-isolated-a` > Actions > **Security** > **Modify IAM role**
-- Si no tienes un Instance Profile con SSM, crea uno:
-  - IAM > Roles > **Create role** > AWS service > EC2
-  - Policy: `AmazonSSMManagedInstanceCore`
-  - Name: `ec2-ssm-role`
-- Asignar `ec2-ssm-role` a la instancia
-
-<details>
-<summary>🔧 CLI equivalente</summary>
+El role `ec2-ssm-s3-role` ya se creó y asoció en el **Prerequisito** al inicio de esta fase. Verifica que está correctamente adjunto antes de continuar:
 
 ```bash
-# Crear role SSM si no existe
-aws iam create-role \
-  --role-name ec2-ssm-role \
-  --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
-
-aws iam attach-role-policy \
-  --role-name ec2-ssm-role \
-  --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
-
-# Crear instance profile
-aws iam create-instance-profile --instance-profile-name ec2-ssm-profile
-aws iam add-role-to-instance-profile \
-  --instance-profile-name ec2-ssm-profile \
-  --role-name ec2-ssm-role
-
-# Asociar a la instancia DB (puede tardar 1-2 min en registrarse en SSM)
-aws ec2 associate-iam-instance-profile \
-  --instance-id $DB_ID \
-  --iam-instance-profile Name=ec2-ssm-profile
+# Confirmar que la instancia tiene el instance profile
+aws ec2 describe-iam-instance-profile-associations \
+  --filters "Name=instance-id,Values=$DB_ID" \
+  --query 'IamInstanceProfileAssociations[0].IamInstanceProfile.Arn' \
+  --output text
+# Esperado: arn:aws:iam::ACCOUNT_ID:instance-profile/ec2-ssm-s3-profile
 ```
-</details>
 
-### Paso B5 — Validar sesión SSM sin bastion
+> ⚠️ Si no ves el profile, vuelve al Prerequisito y ejecútalo antes de continuar. SSM no podrá contactar con la instancia sin el role.
+
+### Paso B4 — Validar sesión SSM sin bastion
 
 ```bash
 # Verificar que la instancia aparece en SSM (puede tardar 2-3 min)
@@ -266,22 +227,49 @@ aws ssm start-session --target $DB_ID --region eu-west-1
 
 Desde dentro de la sesión SSM:
 ```bash
-# Aún sin internet
+# SSM funciona (por eso tienes este shell)
+hostname && whoami
+
+# Sin internet (sin NAT, sin IGW)
 curl --connect-timeout 3 https://google.com
 # Timeout ✓
-
-# Pero SSM funciona (por eso tienes este shell)
-hostname && whoami
 ```
+
+---
+
+## Validación combinada — S3 desde la instancia aislada
+
+Con SSM funcionando ya puedes entrar a la EC2 aislada sin bastion ni SSH. Desde la sesión SSM valida el Gateway Endpoint de S3:
+
+```bash
+# Abrir sesión SSM a la DB (desde tu máquina local)
+aws ssm start-session --target $DB_ID --region eu-west-1
+
+# Una vez dentro de la sesión SSM, ejecutar:
+
+# Test 1: S3 accesible sin internet (via Gateway Endpoint)
+aws s3 ls --region eu-west-1
+# Debe listar tus buckets o devolver lista vacía — en ambos casos, SIN timeout ni error de credenciales ✓
+
+# Test 2: sin internet (RT-Isolated no tiene ruta 0.0.0.0/0)
+curl --connect-timeout 5 https://google.com
+# Timeout ✓
+
+# Test 3: SSM es el único canal — el agente del SSM usa los Interface Endpoints, no internet
+hostname
+# Muestra el hostname de db-isolated-a ✓
+```
+
+> 💡 **Distinción clave S3 vs internet:** `aws s3 ls` funciona porque S3 se alcanza por el prefix list en la route table (Gateway Endpoint). `curl google.com` falla porque no hay ruta `0.0.0.0/0` en RT-Isolated. Dos destinos diferentes, dos paths diferentes — uno dentro de la red AWS, el otro hacia internet.
 
 ✅ **Tabla de validación:**
 
-| Test | Esperado | Resultado |
-|------|----------|-----------|
-| `aws s3 ls` desde isolated (sin NAT) | Responde OK | ☐ |
-| `aws ssm start-session` a DB | Abre shell | ☐ |
-| `curl google.com` desde DB | Timeout | ☐ |
-| Flow Logs: tráfico S3 sin internet | `pl-` en destino | ☐ (Fase 5) |
+| Test | Desde | Esperado | Resultado |
+|------|-------|----------|-----------|
+| `aws ssm start-session` a DB | Máquina local | Abre shell | ☐ |
+| `aws s3 ls` dentro de SSM | EC2 db-isolated | Lista OK (no timeout) | ☐ |
+| `curl google.com` dentro de SSM | EC2 db-isolated | Timeout (sin internet) | ☐ |
+| Flow Logs: tráfico S3 sin IGW | — | `pl-` como destino, no `0.0.0.0/0` | ☐ (Fase 5) |
 
 ---
 

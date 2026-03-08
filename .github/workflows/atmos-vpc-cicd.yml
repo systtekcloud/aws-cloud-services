@@ -1,0 +1,239 @@
+name: VPC - Atmos
+
+# Patrón rama-por-entorno:
+#   feature/* → PR a develop → plan dev  → merge → apply dev
+#   develop   → PR a main   → plan prod → merge → apply prod
+
+on:
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - "vpc/labs/lab01-vpc/stacks/**"
+      - "vpc/labs/lab01-vpc/terraform/modules/**"
+      - "vpc/labs/lab01-vpc/atmos.yaml"
+  push:
+    branches: [develop, main]
+    paths:
+      - "vpc/labs/lab01-vpc/stacks/**"
+      - "vpc/labs/lab01-vpc/terraform/modules/**"
+      - "vpc/labs/lab01-vpc/atmos.yaml"
+  workflow_dispatch:
+    inputs:
+      stack:
+        description: Stack a planear
+        required: true
+        default: vpc-lab-dev
+        type: choice
+        options:
+          - vpc-lab-dev
+          - vpc-lab-prod
+
+env:
+  ATMOS_BASE_PATH: vpc/labs/lab01-vpc
+  AWS_REGION: eu-west-1
+  ATMOS_VERSION: "1.208.0"
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  # ── Plan dev (PR a develop) ───────────────────────────────────────────────────
+  plan-dev:
+    name: Atmos Plan - dev
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'pull_request' && github.base_ref == 'develop') ||
+      (github.event_name == 'workflow_dispatch' && inputs.stack == 'vpc-lab-dev')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.12.0"
+          terraform_wrapper: false
+
+      - name: Install Atmos
+        run: |
+          curl -sSfL \
+            "https://github.com/cloudposse/atmos/releases/download/v${ATMOS_VERSION}/atmos_${ATMOS_VERSION}_linux_amd64" \
+            -o /usr/local/bin/atmos
+          chmod +x /usr/local/bin/atmos
+          atmos version
+
+      - name: Atmos Plan - vpc-lab-dev
+        id: plan
+        run: |
+          atmos terraform plan vpc \
+            --stack vpc-lab-dev \
+            -- -no-color 2>&1 | tee plan_output.txt
+        working-directory: ${{ env.ATMOS_BASE_PATH }}
+        continue-on-error: true
+
+      - name: Comentar Plan en PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const planOutput = fs.readFileSync(
+              '${{ env.ATMOS_BASE_PATH }}/plan_output.txt', 'utf8'
+            ).slice(0, 60000);
+            const status = '${{ steps.plan.outcome }}' === 'success' ? '✅' : '❌';
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## Atmos Plan - \`vpc-lab-dev\` ${status}\n\n<details><summary>Ver Plan completo</summary>\n\n\`\`\`terraform\n${planOutput}\n\`\`\`\n</details>\n\n*Actor: @${{ github.actor }}*`
+            });
+
+      - name: Fallar si el plan falló
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
+
+  # ── Plan prod (PR a main) ─────────────────────────────────────────────────────
+  plan-prod:
+    name: Atmos Plan - prod
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'pull_request' && github.base_ref == 'main') ||
+      (github.event_name == 'workflow_dispatch' && inputs.stack == 'vpc-lab-prod')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.12.0"
+          terraform_wrapper: false
+
+      - name: Install Atmos
+        run: |
+          curl -sSfL \
+            "https://github.com/cloudposse/atmos/releases/download/v${ATMOS_VERSION}/atmos_${ATMOS_VERSION}_linux_amd64" \
+            -o /usr/local/bin/atmos
+          chmod +x /usr/local/bin/atmos
+          atmos version
+
+      - name: Atmos Plan - vpc-lab-prod
+        id: plan
+        run: |
+          atmos terraform plan vpc \
+            --stack vpc-lab-prod \
+            -- -no-color 2>&1 | tee plan_output.txt
+        working-directory: ${{ env.ATMOS_BASE_PATH }}
+        continue-on-error: true
+
+      - name: Comentar Plan en PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const planOutput = fs.readFileSync(
+              '${{ env.ATMOS_BASE_PATH }}/plan_output.txt', 'utf8'
+            ).slice(0, 60000);
+            const status = '${{ steps.plan.outcome }}' === 'success' ? '✅' : '❌';
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## Atmos Plan - \`vpc-lab-prod\` ${status}\n\n<details><summary>Ver Plan completo</summary>\n\n\`\`\`terraform\n${planOutput}\n\`\`\`\n</details>\n\n*Actor: @${{ github.actor }}*`
+            });
+
+      - name: Fallar si el plan falló
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
+
+  # ── Apply dev ─────────────────────────────────────────────────────────────────
+  # Merge a develop → apply vpc-lab-dev (sin aprobación)
+  apply-dev:
+    name: Atmos Apply - vpc-lab-dev
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    environment: dev
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.12.0"
+          terraform_wrapper: false
+
+      - name: Install Atmos
+        run: |
+          curl -sSfL \
+            "https://github.com/cloudposse/atmos/releases/download/v${ATMOS_VERSION}/atmos_${ATMOS_VERSION}_linux_amd64" \
+            -o /usr/local/bin/atmos
+          chmod +x /usr/local/bin/atmos
+
+      - name: Atmos Apply - vpc-lab-dev
+        run: |
+          atmos terraform apply vpc \
+            --stack vpc-lab-dev \
+            -- -auto-approve
+        working-directory: ${{ env.ATMOS_BASE_PATH }}
+
+  # ── Apply prod ────────────────────────────────────────────────────────────────
+  # Merge a main → apply vpc-lab-prod (requiere aprobación manual en GitHub)
+  apply-prod:
+    name: Atmos Apply - vpc-lab-prod
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.12.0"
+          terraform_wrapper: false
+
+      - name: Install Atmos
+        run: |
+          curl -sSfL \
+            "https://github.com/cloudposse/atmos/releases/download/v${ATMOS_VERSION}/atmos_${ATMOS_VERSION}_linux_amd64" \
+            -o /usr/local/bin/atmos
+          chmod +x /usr/local/bin/atmos
+
+      - name: Atmos Apply - vpc-lab-prod
+        run: |
+          atmos terraform apply vpc \
+            --stack vpc-lab-prod \
+            -- -auto-approve
+        working-directory: ${{ env.ATMOS_BASE_PATH }}

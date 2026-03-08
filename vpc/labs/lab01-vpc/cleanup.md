@@ -263,16 +263,19 @@ fi
 ## Paso 11 — Borrar recursos IAM del lab
 
 ```bash
-# Role SSM para instancias
+# Role SSM + S3 para instancias (ec2-ssm-s3-role)
 aws iam remove-role-from-instance-profile \
-  --instance-profile-name ec2-ssm-profile \
-  --role-name ec2-ssm-role 2>/dev/null || true
+  --instance-profile-name ec2-ssm-s3-profile \
+  --role-name ec2-ssm-s3-role 2>/dev/null || true
 aws iam delete-instance-profile \
-  --instance-profile-name ec2-ssm-profile 2>/dev/null || true
+  --instance-profile-name ec2-ssm-s3-profile 2>/dev/null || true
 aws iam detach-role-policy \
-  --role-name ec2-ssm-role \
+  --role-name ec2-ssm-s3-role \
   --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore 2>/dev/null || true
-aws iam delete-role --role-name ec2-ssm-role 2>/dev/null || true
+aws iam detach-role-policy \
+  --role-name ec2-ssm-s3-role \
+  --policy-arn arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess 2>/dev/null || true
+aws iam delete-role --role-name ec2-ssm-s3-role 2>/dev/null || true
 
 # Role Flow Logs
 aws iam delete-role-policy \
