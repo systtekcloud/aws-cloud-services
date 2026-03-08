@@ -206,7 +206,7 @@ jobs:
     name: Atmos Apply - vpc-lab-prod
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    environment: production
+    environment: prod
 
     steps:
       - name: Checkout
