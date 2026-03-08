@@ -34,7 +34,8 @@
       "Action": [
         "ec2:CreateFlowLogs", "ec2:DeleteFlowLogs", "ec2:DescribeFlowLogs",
         "logs:CreateLogGroup", "logs:DeleteLogGroup", "logs:DescribeLogGroups",
-        "logs:PutRetentionPolicy", "logs:ListTagsLogGroup", "logs:TagLogGroup"
+        "logs:PutRetentionPolicy", "logs:ListTagsLogGroup", "logs:TagLogGroup",
+        "logs:ListTagsForResource", "logs:TagResource", "logs:UntagResource"
       ],
       "Resource": "*"
     },
