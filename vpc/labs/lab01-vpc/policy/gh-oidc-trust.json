@@ -30,6 +30,34 @@
       }
     },
     {
+      "Sid": "AllowDevEnvironmentApply",
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::899237616120:oidc-provider/token.actions.githubusercontent.com"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+          "token.actions.githubusercontent.com:sub": "repo:systtekcloud/aws-cloud-services:environment:dev"
+        }
+      }
+    },
+    {
+      "Sid": "AllowProductionEnvironmentApply",
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::899237616120:oidc-provider/token.actions.githubusercontent.com"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+          "token.actions.githubusercontent.com:sub": "repo:systtekcloud/aws-cloud-services:environment:production"
+        }
+      }
+    },
+    {
       "Sid": "AllowPullRequestPlan",
       "Effect": "Allow",
       "Principal": {

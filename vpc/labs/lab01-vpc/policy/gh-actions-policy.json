@@ -20,6 +20,9 @@
         "ec2:ReplaceNetworkAclAssociation", "ec2:DescribeNetworkAcls",
         "ec2:CreateVpcEndpoint", "ec2:DeleteVpcEndpoints",
         "ec2:ModifyVpcEndpoint", "ec2:DescribeVpcEndpoints",
+        "ec2:DescribeVpcAttribute",
+        "ec2:DescribeNetworkInterfaces",
+        "ec2:DescribeAddressesAttribute",
         "ec2:DescribePrefixLists", "ec2:DescribeAvailabilityZones",
         "ec2:CreateTags", "ec2:DeleteTags", "ec2:DescribeTags"
       ],
@@ -46,7 +49,7 @@
         "iam:ListRolePolicies", "iam:ListAttachedRolePolicies",
         "iam:TagRole", "iam:UntagRole"
       ],
-      "Resource": "arn:aws:iam:::role/flow-logs-role-*"
+      "Resource": "arn:aws:iam::899237616120:role/flow-logs-role-*"
     },
     {
       "Sid": "TerraformState",
@@ -56,8 +59,8 @@
         "s3:GetBucketVersioning", "s3:ListBucket"
       ],
       "Resource": [
-        "arn:aws:s3:::tf-state-vpc-lab-",
-        "arn:aws:s3:::tf-state-vpc-lab-/*"
+        "arn:aws:s3:::tf-state-vpc-lab-899237616120",
+        "arn:aws:s3:::tf-state-vpc-lab-899237616120/*"
       ]
     }
   ]
