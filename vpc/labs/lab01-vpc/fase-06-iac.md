@@ -1,6 +1,6 @@
 # Fase 6 — IaC: Terraform + GitHub Actions + Atmos
 
-> **Tiempo:** ~60 min | **Coste:** 0€ extra (la infra es la misma que las fases anteriores) | **Prerequisito:** Terraform ≥ 1.7, GitHub repo, Fases 1-5 completadas
+> **Tiempo:** ~60 min | **Coste:** 0€ extra (la infra es la misma que las fases anteriores) | **Prerequisito:** Terraform ≥ 1.12, GitHub repo, Fases 1-5 completadas
 
 ---
 
@@ -19,7 +19,7 @@ Reproducir toda la VPC de este lab con código. Aprenderás:
 ```
 vpc/
 └── labs/
-    └── lab-01-vpc-desde-cero/
+    └── lab01-vpc/
         └── terraform/
             ├── modules/
             │   └── vpc/
@@ -239,7 +239,7 @@ resource "aws_route_table_association" "isolated" {
 resource "aws_vpc_endpoint" "s3" {
   count           = var.enable_s3_endpoint ? 1 : 0
   vpc_id          = aws_vpc.this.id
-  service_name    = "com.amazonaws.${data.aws_region.current.name}.s3"
+  service_name    = "com.amazonaws.${data.aws_region.current.region}.s3"
   vpc_endpoint_type = "Gateway"
   route_table_ids = [
     aws_route_table.private.id,
@@ -343,8 +343,8 @@ resource "aws_network_acl" "isolated" {
     protocol   = "icmp"
     action     = "allow"
     cidr_block = var.private_subnets[0]
-    from_port  = -1
-    to_port    = -1
+    from_port  = 0
+    to_port    = 0
     icmp_type  = -1
     icmp_code  = -1
   }
@@ -354,8 +354,8 @@ resource "aws_network_acl" "isolated" {
     protocol   = "icmp"
     action     = "allow"
     cidr_block = var.private_subnets[1]
-    from_port  = -1
-    to_port    = -1
+    from_port  = 0
+    to_port    = 0
     icmp_type  = -1
     icmp_code  = -1
   }
@@ -395,8 +395,8 @@ resource "aws_network_acl" "isolated" {
     protocol   = "icmp"
     action     = "allow"
     cidr_block = var.private_subnets[0]
-    from_port  = -1
-    to_port    = -1
+    from_port  = 0
+    to_port    = 0
     icmp_type  = -1
     icmp_code  = -1
   }
@@ -406,8 +406,8 @@ resource "aws_network_acl" "isolated" {
     protocol   = "icmp"
     action     = "allow"
     cidr_block = var.private_subnets[1]
-    from_port  = -1
-    to_port    = -1
+    from_port  = 0
+    to_port    = 0
     icmp_type  = -1
     icmp_code  = -1
   }
@@ -707,14 +707,14 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - 'vpc/labs/lab-01-vpc-desde-cero/terraform/**'
+      - 'vpc/labs/lab01-vpc/terraform/**'
   push:
     branches: [main]
     paths:
-      - 'vpc/labs/lab-01-vpc-desde-cero/terraform/**'
+      - 'vpc/labs/lab01-vpc/terraform/**'
 
 env:
-  TF_WORKING_DIR: vpc/labs/lab-01-vpc-desde-cero/terraform/envs/dev
+  TF_WORKING_DIR: vpc/labs/lab01-vpc/terraform/envs/dev
   AWS_REGION: eu-west-1
 
 permissions:
@@ -742,7 +742,7 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: "1.7.0"
+          terraform_version: "1.12.0"
 
       - name: Terraform Format Check
         id: fmt
@@ -817,7 +817,7 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: "1.7.0"
+          terraform_version: "1.12.0"
 
       - name: Terraform Init
         run: terraform init
@@ -926,7 +926,7 @@ Atmos es un framework CLI sobre Terraform que resuelve el problema de gestionar 
 ### Estructura de directorios Atmos
 
 ```
-vpc/labs/lab-01-vpc-desde-cero/
+vpc/labs/lab01-vpc/
 ├── atmos.yaml                        ← Configuración global de Atmos
 ├── terraform/
 │   └── modules/
@@ -954,18 +954,10 @@ components:
     apply_auto_approve: false
     deploy_run_init: true
     init_run_reconfigure: true
-    auto_generate_backend_file: true
-    # Atmos ignora el 'backend' definido en el stack YAML del componente.
-    # El bucket/region se configuran aquí globalmente.
-    # La key se genera automáticamente: {workspace_key_prefix}/{stack}.tfstate
-    #   p.ej.: vpc/vpc-lab-dev.tfstate  (workspace_key_prefix = nombre del componente)
-    backend_type: s3
-    backend:
-      s3:
-        bucket: "tf-state-vpc-lab-ACCOUNT_ID"  # sustituir con el account ID real
-        region: eu-west-1
-        encrypt: true
-        use_lockfile: true
+    auto_generate_backend_file: false  # backend.tf.json gestionado manualmente en el módulo
+    # Con auto_generate_backend_file: false, Atmos NO genera el backend.
+    # El backend completo está definido en terraform/modules/vpc/backend.tf.json
+    # incluyendo bucket, key, region, workspace_key_prefix, encrypt y use_lockfile.
 
 stacks:
   base_path: "stacks"

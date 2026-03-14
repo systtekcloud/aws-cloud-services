@@ -11,3 +11,4 @@
 # Atmos — ficheros generados en tiempo de ejecución
 *.terraform.tfvars.json
 *.planfile.worktrees/
+.worktrees/

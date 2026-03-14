@@ -288,7 +288,35 @@ echo "Roles IAM del lab borrados."
 
 ---
 
-## Paso 12 — Borrar Key Pair
+## Paso 12 — Borrar recursos IaC (Fase 6)
+
+> Solo si completaste la Fase 6 (Terraform + Atmos + GitHub Actions).
+
+```bash
+# GitHub Actions OIDC role
+aws iam delete-role-policy \
+  --role-name github-actions-vpc-lab \
+  --policy-name vpc-lab-permissions 2>/dev/null || true
+aws iam delete-role --role-name github-actions-vpc-lab 2>/dev/null || true
+
+# OIDC provider de GitHub Actions
+OIDC_ARN=$(aws iam list-open-id-connect-providers \
+  --query "OpenIDConnectProviderList[?ends_with(Arn,'token.actions.githubusercontent.com')].Arn" \
+  --output text)
+[ -n "$OIDC_ARN" ] && aws iam delete-open-id-connect-provider \
+  --open-id-connect-provider-arn "$OIDC_ARN" && echo "OIDC provider borrado."
+
+# Estado Terraform en S3 (vaciar bucket antes de borrarlo)
+BUCKET="tf-state-vpc-lab-$(aws sts get-caller-identity --query Account --output text)"
+aws s3 rm s3://$BUCKET --recursive 2>/dev/null || true
+aws s3api delete-bucket --bucket $BUCKET 2>/dev/null && echo "Bucket de estado $BUCKET borrado."
+
+echo "Recursos IaC borrados."
+```
+
+---
+
+## Paso 13 — Borrar Key Pair
 
 ```bash
 aws ec2 delete-key-pair --key-name vpc-lab-key 2>/dev/null && \

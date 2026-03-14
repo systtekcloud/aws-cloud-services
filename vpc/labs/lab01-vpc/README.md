@@ -18,7 +18,7 @@ Construir una VPC de producción paso a paso, entendiendo **por qué** cada deci
 - Cuenta AWS con permisos de administrador (o política mínima: VPC, EC2, CloudWatch, IAM, S3)
 - AWS CLI v2 configurado: `aws configure` con `default region = eu-west-1`
 - Verificación: `aws sts get-caller-identity` debe devolver tu Account ID
-- Para la Fase 6 (IaC): Terraform ≥ 1.7, repositorio GitHub, secretos configurados
+- Para la Fase 6 (IaC): Terraform ≥ 1.12, Atmos 1.208.0, repositorio GitHub, secretos configurados
 
 ---
 
