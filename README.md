@@ -10,12 +10,15 @@ Cada módulo sigue la misma filosofía: entender **por qué** cada decisión exi
 
 ```
 aws-cloud-services/
-├── vpc/          ← Fundamentos de red: VPC, subnets, routing, endpoints
+├── vpc/          ← Fundamentos de red: VPC, subnets, routing, endpoints, Flow Logs, IaC
+├── networking/   ← Patrones avanzados: PrivateLink, Gateway vs Interface Endpoint
 ├── compute/      ← EC2: ALB, ASG, Aurora, escalado, DNS global, IaC enterprise
 ├── ecs/          ← Contenedores: Fargate, CI/CD, GitOps, optimización de costes
-├── eks/          ← (próximamente) Kubernetes gestionado en AWS
-├── databases/    ← (próximamente) RDS, Aurora, DynamoDB, ElastiCache
-└── route53/      ← (próximamente) DNS, routing policies, health checks
+├── databases/    ← RDS, Aurora, DynamoDB, ElastiCache
+├── security/     ← Organizations, Identity Center, SCPs, logging centralizado, compliance
+├── eks/          ← Kubernetes gestionado en AWS (próximamente)
+├── route53/      ← DNS, routing policies, health checks (próximamente)
+└── storage/      ← S3, EFS, EBS, Glacier (próximamente)
 ```
 
 Cada módulo contiene:
@@ -44,6 +47,19 @@ El lab construye una VPC de producción completa en 6 fases progresivas, pasando
 | 6 — IaC | Terraform completo + GitHub Actions CI/CD |
 
 **Coste:** < 1€ por sesión completa. El único recurso costoso es el NAT Gateway, que se elimina al terminar cada fase.
+
+---
+
+### Networking — Patrones avanzados de conectividad
+
+**Por qué:** Más allá de la VPC básica, el examen SA Associate evalúa la capacidad de diseñar conectividad segura entre VPCs y optimizar el coste del tráfico hacia servicios AWS. Estos labs demuestran conceptos que se malinterpretan con frecuencia.
+
+| Lab | Concepto demostrado | Coste |
+|-----|---------------------|-------|
+| Lab 01 — PrivateLink con CIDRs solapados | Dos VPCs con el mismo CIDR (`10.0.0.0/16`) se comunican via NLB + Interface Endpoint. Demuestra por qué PrivateLink no depende de enrutamiento IP entre VPCs, a diferencia de VPC Peering | < $0.50 |
+| Lab 02 — Gateway Endpoint vs NAT Gateway para S3 | VPC Flow Logs prueba empíricamente que el tráfico S3 desde una subnet con Gateway Endpoint no pasa por NAT. Dos EC2 en subnets distintas permiten comparar ambas rutas | < $0.10 |
+
+**Stack:** Terraform + Terragrunt · SSM Session Manager (sin SSH) · eu-west-1
 
 ---
 
@@ -85,14 +101,47 @@ Incluye además `codex-labs/`: 5 escenarios de arquitectura enterprise para SA P
 
 ---
 
+### Databases — RDS, Aurora, DynamoDB, ElastiCache
+
+**Por qué:** Las bases de datos son una de las áreas con más peso en el SA Associate. Saber cuándo elegir RDS vs Aurora vs DynamoDB vs ElastiCache, y cómo configurar HA, réplicas y caching, es fundamental para el examen y para diseñar correctamente.
+
+5 labs progresivos que van desde la base hasta una arquitectura 3-tier completa:
+
+| Lab | Qué se construye | Coste estimado |
+|-----|-----------------|----------------|
+| Lab 01 — RDS básico | RDS MySQL Multi-AZ + Read Replica + Secrets Manager + SG | ~2€/h |
+| Lab 02 — Aurora | Aurora MySQL Cluster + failover automático + Auto Scaling de réplicas | ~3€/h |
+| Lab 03 — DynamoDB | Tabla + GSI + capacity modes + TTL + DynamoDB Streams + Lambda | < $1 |
+| Lab 04 — ElastiCache | Redis Cluster Mode + cache-aside pattern + pipeline de invalidación | ~0.5€/h |
+| Lab 05 — 3-tier full stack | Aurora + RDS Proxy + DynamoDB + Lambda + ElastiCache integrados en una VPC 3-tier | ~5€/h |
+
+Incluye guías de troubleshooting: conexión fallida a RDS, aurora no hace failover, throttling DynamoDB, cache inconsistente, y más.
+
+---
+
+### Security — Organizations, Identity Center y Governance
+
+**Por qué:** La seguridad multi-cuenta es el modelo estándar de AWS para enterprise. Entender Organizations, SCPs, Identity Center (SSO) y logging centralizado es imprescindible tanto para el examen SA Associate como para el Security Specialty.
+
+| Lab | Qué se construye | Fases |
+|-----|-----------------|-------|
+| Lab 01 — Security & Governance multi-cuenta | Organizations + OUs + SCPs de deny + Identity Center (SAML/OIDC) + CloudTrail centralizado + AWS Config + Secrets Manager | 6 fases |
+
+Arquitectura objetivo del lab: cuenta root con OUs separadas (Security, SharedServices, Workloads), cuenta de Log Archive, delegación de administración a cuenta de Security, y acceso federado con permission sets.
+
+**Coste:** ~15-20€ por sesión completa (8h).
+
+---
+
 ## Herramientas utilizadas
 
 - **AWS CLI v2** — aprovisionamiento manual y scripts de validación
 - **Terraform ≥ 1.7** — IaC de todos los labs
-- **Terragrunt** — gestión multi-entorno (v5+ en compute, v5+ en ECS)
+- **Terragrunt** — gestión multi-entorno (v5+ en compute, v5+ en ECS, labs networking)
 - **Atmos** — stacks declarativos para arquitecturas enterprise
 - **GitHub Actions** — CI/CD con OIDC (sin access keys en secretos)
 - **Docker** — build y push de imágenes a ECR (labs ECS)
+- **SSM Session Manager** — acceso a EC2 sin SSH ni bastión (labs networking y databases)
 
 ## Región por defecto
 
