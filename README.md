@@ -11,11 +11,12 @@ Cada módulo sigue la misma filosofía: entender **por qué** cada decisión exi
 ```
 aws-cloud-services/
 ├── vpc/          ← Fundamentos de red: VPC, subnets, routing, endpoints, Flow Logs, IaC
-├── networking/   ← Patrones avanzados: PrivateLink, Gateway vs Interface Endpoint
+├── networking/   ← Patrones avanzados: PrivateLink, NAT HA, VPC Peering, TGW, NACL, SSM
 ├── compute/      ← EC2: ALB, ASG, Aurora, escalado, DNS global, IaC enterprise
 ├── ecs/          ← Contenedores: Fargate, CI/CD, GitOps, optimización de costes
 ├── databases/    ← RDS, Aurora, DynamoDB, ElastiCache
-├── security/     ← Organizations, Identity Center, SCPs, logging centralizado, compliance
+├── security/     ← Organizations, Identity Center, Config, GuardDuty, Inspector, Macie, Detective
+├── data/         ← Kinesis, MSK, Glue, EMR, Redshift, OpenSearch, data lake con Terragrunt
 ├── eks/          ← Kubernetes gestionado en AWS (próximamente)
 ├── route53/      ← DNS, routing policies, health checks (próximamente)
 └── storage/      ← S3, EFS, EBS, Glacier (próximamente)
@@ -123,13 +124,35 @@ Incluye guías de troubleshooting: conexión fallida a RDS, aurora no hace failo
 
 **Por qué:** La seguridad multi-cuenta es el modelo estándar de AWS para enterprise. Entender Organizations, SCPs, Identity Center (SSO) y logging centralizado es imprescindible tanto para el examen SA Associate como para el Security Specialty.
 
-| Lab | Qué se construye | Fases |
+| Lab | Qué se construye | Coste |
 |-----|-----------------|-------|
-| Lab 01 — Security & Governance multi-cuenta | Organizations + OUs + SCPs de deny + Identity Center (SAML/OIDC) + CloudTrail centralizado + AWS Config + Secrets Manager | 6 fases |
+| Lab 01 — Security & Governance multi-cuenta | Organizations + OUs + SCPs + Identity Center + CloudTrail + Config + Secrets Manager | ~15-20€/sesión |
+| Lab 02 — IAM Access Analyzer | Zone of trust, findings (Active/Archived/Resolved), S3 y cross-account | GRATIS |
+| Lab 03 — AWS Config + Remediation | Config Rules (managed/custom Lambda) + Automatic Remediation SSM + Aggregator | ~$2-3 |
+| Lab 04 — Amazon GuardDuty | Threat detection, Trusted IP Lists, Suppression Rules, EventBridge → Lambda | GRATIS 30 días |
+| Lab 05 — AWS Security Hub | Findings aggregation, Security Score, CIS/FSBP standards, Automation Rules | GRATIS 30 días |
+| Lab 06 — Amazon Inspector | CVE scanning en EC2/ECR (Enhanced vs Basic), DevSecOps pipeline integration | GRATIS 30 días |
+| Lab 07 — Amazon Macie | `SensitiveData:` vs `Policy:` findings, PII detection, Custom Identifiers | GRATIS 30 días |
+| Lab 08 — Amazon Detective | Behavior graph, forensic investigation, Detective vs CloudTrail | GRATIS 30 días |
 
-Arquitectura objetivo del lab: cuenta root con OUs separadas (Security, SharedServices, Workloads), cuenta de Log Archive, delegación de administración a cuenta de Security, y acceso federado con permission sets.
+---
 
-**Coste:** ~15-20€ por sesión completa (8h).
+### Data & Streaming — Kinesis, MSK, Glue, EMR, Redshift, OpenSearch
+
+**Por qué:** Los servicios de datos son una de las áreas de mayor peso en el SA Associate. Saber cuándo elegir Kinesis vs MSK, Glue vs EMR, Redshift vs Athena es fundamental para el examen y para diseñar arquitecturas de datos modernas.
+
+8 labs que cubren el ciclo completo de datos (ingesta → procesamiento → almacenamiento → consulta → gobernanza):
+
+| Lab | Qué se construye | Coste |
+|-----|-----------------|-------|
+| Lab 01 — Kinesis | Data Streams (shards, consumers) + Firehose (S3/Redshift) + patrones de arquitectura | ~$0.50/h |
+| Lab 02 — Kinesis Analytics | SQL/Flink sobre streams, windowing, anomaly detection con RANDOM_CUT_FOREST | ~$0.50/h |
+| Lab 03 — MSK | Kafka gestionado, topics/partitions, MSK Connect (S3 Sink Connector) | partition-hours |
+| Lab 04 — Glue + Lake Formation | ETL serverless, Data Catalog, column-level security con Lake Formation | mínimo |
+| Lab 05 — EMR Serverless | Spark sin gestionar clusters, integración con Glue Data Catalog | solo job duration |
+| Lab 06 — Redshift | Data warehouse columnar, COPY desde S3, Redshift Spectrum sobre S3 | Serverless RPU |
+| Lab 07 — OpenSearch | Búsqueda full-text, pipeline Firehose → OpenSearch, dashboards | instancia/h |
+| Lab 08 — Data Lake con Terragrunt | Arquitectura lambda completa (batch + streaming) con Terragrunt multi-capa | variable |
 
 ---
 
