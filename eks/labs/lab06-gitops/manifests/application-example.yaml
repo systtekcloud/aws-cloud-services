@@ -1,0 +1,80 @@
+# Application de referencia con todas las opciones relevantes
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mi-app
+  namespace: argocd
+  # finalizer: borra recursos del cluster al borrar la Application
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+  labels:
+    app.kubernetes.io/part-of: mi-plataforma
+    environment: produccion
+spec:
+  # AppProject: agrupa apps con restricciones de seguridad
+  project: produccion
+
+  source:
+    repoURL: https://github.com/mi-empresa/k8s-manifests.git
+    targetRevision: main    # branch, tag, o commit SHA
+    path: services/mi-app  # path dentro del repo
+
+    # Si es un Helm chart:
+    # helm:
+    #   valueFiles:
+    #   - values.yaml
+    #   - values-prod.yaml
+    #   parameters:
+    #   - name: image.tag
+    #     value: v1.2.3
+
+  destination:
+    server: https://kubernetes.default.svc  # cluster local
+    namespace: produccion
+
+  syncPolicy:
+    automated:
+      prune: true      # borrar recursos que ya no están en Git
+      selfHeal: true   # revertir cambios manuales en el cluster
+    syncOptions:
+    - CreateNamespace=true    # crear namespace si no existe
+    - PrunePropagationPolicy=foreground  # borrar dependencias antes del recurso padre
+    - ApplyOutOfSyncOnly=true  # solo aplica recursos que han cambiado (más rápido)
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+---
+# AppProject: restricciones de seguridad para un grupo de apps
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: produccion
+  namespace: argocd
+spec:
+  description: "Aplicaciones de producción"
+
+  # Solo puede usar estos repos
+  sourceRepos:
+  - https://github.com/mi-empresa/k8s-manifests.git
+  - https://charts.bitnami.com/*  # helm charts externos permitidos
+
+  # Solo puede desplegar en estos clusters/namespaces
+  destinations:
+  - namespace: produccion
+    server: https://kubernetes.default.svc
+  - namespace: monitoring
+    server: https://kubernetes.default.svc
+
+  # Recursos de cluster (no namespace) que esta project puede gestionar
+  clusterResourceWhitelist:
+  - group: ''
+    kind: Namespace   # puede crear namespaces
+
+  # No puede usar estos recursos (por seguridad)
+  namespaceResourceBlacklist:
+  - group: ''
+    kind: Secret   # ArgoCD no gestiona Secrets directamente (usar Sealed Secrets o CSI Driver)
