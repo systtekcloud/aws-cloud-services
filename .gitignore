@@ -12,3 +12,5 @@
 *.terraform.tfvars.json
 *.planfile.worktrees/
 .worktrees/
+
+docs/plans/*.md

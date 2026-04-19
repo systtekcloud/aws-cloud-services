@@ -27,10 +27,9 @@ Construir una VPC de producción paso a paso, entendiendo **por qué** cada deci
 ```mermaid
 graph TB
     Internet((Internet))
+    IGW[Internet Gateway]
 
     subgraph VPC["VPC  10.10.0.0/16  (eu-west-1)"]
-        IGW[Internet Gateway]
-
         subgraph AZ_A["eu-west-1a"]
             PUB_A["public-a\n10.10.1.0/24\nEC2 Bastion"]
             NAT_A["NAT Gateway\n+ EIP"]
@@ -55,6 +54,8 @@ graph TB
             SG_DB["SG-DB\n5432 from SG-App"]
             NACL_ISO["NACL-Isolated\nBlock all ingress\nexcept private tier"]
         end
+
+        FLOWLOGS[VPC Flow Logs]
     end
 
     subgraph OBSERV["Observabilidad"]
@@ -63,13 +64,15 @@ graph TB
     end
 
     Internet --> IGW
-    IGW --> PUB_A & PUB_B
+    IGW --> PUB_A
+    IGW --> PUB_B
     PUB_A --> NAT_A
     NAT_A --> PRIV_A
     PRIV_A --> ISO_A
     ISO_A --> EP_S3
     ISO_A --> EP_SSM
-    VPC --> CW
+    FLOWLOGS --> CW
+    FLOWLOGS --> S3_LOGS
 ```
 
 ---

@@ -16,21 +16,27 @@ Construir la red de base que necesita RDS: subnets privadas sin acceso a interne
 graph TB
     Internet((Internet))
     IGW[Internet Gateway]
+    NAT[NAT Gateway + EIP]
 
     subgraph VPC["VPC 10.20.0.0/16"]
-        subgraph RT_PUB["RT-Public → IGW"]
-            PUB_A["public-a\n10.20.1.0/24\neu-west-1a\n[NAT GW + EIP]"]
+        subgraph RT_PUB["RT-Public — via IGW"]
+            PUB_A["public-a\n10.20.1.0/24\neu-west-1a"]
             PUB_B["public-b\n10.20.2.0/24\neu-west-1b"]
         end
-        subgraph RT_PRIV["RT-Private → NAT"]
-            APP_A["private-app-a\n10.20.21.0/24\neu-west-1a\n✓ EC2 app (SSM)"]
-            DB_A["private-db-a\n10.20.11.0/24\neu-west-1a\n← RDS Primary aquí"]
-            DB_B["private-db-b\n10.20.12.0/24\neu-west-1b\n← RDS Standby/Replica"]
+        subgraph RT_PRIV["RT-Private — via NAT"]
+            APP_A["private-app-a\n10.20.21.0/24\neu-west-1a\nEC2 app - SSM"]
+            DB_A["private-db-a\n10.20.11.0/24\neu-west-1a\nRDS Primary"]
+            DB_B["private-db-b\n10.20.12.0/24\neu-west-1b\nRDS Standby/Replica"]
         end
     end
 
-    Internet --> IGW --> RT_PUB
-    RT_PUB -->|NAT| RT_PRIV
+    Internet --> IGW
+    IGW --> PUB_A
+    IGW --> PUB_B
+    PUB_A --- NAT
+    NAT -->|NAT| APP_A
+    NAT -->|NAT| DB_A
+    NAT -->|NAT| DB_B
 ```
 
 ---
